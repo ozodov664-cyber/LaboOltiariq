@@ -443,10 +443,9 @@ async function renderDriver(sub) {
     try { await post("/api/driver/online", { online: e.target.checked }); if (e.target.checked) startDriverLocationWatch(); else stopDriverLocationWatch(); }
     catch (err) { e.target.checked = !e.target.checked; showError(err.message); }
   };
-  // "available" — onlayn, buyurtma kutmoqda; "busy" — hozir safarda (masofa GPS orqali
-  // avtomatik hisoblanishi uchun watch shu holatda ham ishlab turishi SHART, aks holda
-  // sahifa qayta yuklansa (masalan ilova qayta ochilsa) safar davomida joylashuv
-  // yuborilishi to'xtab, km ko'payishi to'xtab qolardi).
+  // "available" — onlayn, buyurtma kutmoqda; "busy" — hozir safarda (joylashuv
+  // dispetcherlik/xaritada ko'rsatish uchun yuborilishi kerak — narxga ta'sir qilmaydi,
+  // narx buyurtma berilganda qanday ko'rsatilgan bo'lsa, shundayligicha qoladi).
   if (me.status === "available" || me.status === "busy") startDriverLocationWatch();
 
   poll(async () => {
@@ -459,7 +458,6 @@ async function renderDriver(sub) {
     let controls = "";
     if (ord.status === "accepted") controls = `<button class="btn" onclick="driverAction(${ord.id},'start')">▶️ Safarni boshlash</button>`;
     if (ord.status === "in_progress") controls = `
-      <button class="btn secondary" onclick="driverAction(${ord.id},'km')">🔧 +1 km (GPS ishlamasa, qo'lda)</button>
       <button class="btn secondary" onclick="driverAction(${ord.id},'wait_on')">⏸ Kutish boshlash</button>
       <button class="btn danger" onclick="driverAction(${ord.id},'finish')">🏁 Safarni yakunlash</button>`;
     if (ord.status === "waiting") controls = `
@@ -471,7 +469,7 @@ async function renderDriver(sub) {
         <div class="price-big">${money(ord.price)} so'm</div>
         <div class="muted">📍 ${ord.pickup_text || "-"}</div>
         <div class="muted">🏁 ${ord.dest_text || "-"}</div>
-        <div class="muted">Masofa: ${ord.actual_km} km <span class="muted">(GPS orqali avtomatik)</span></div>
+        <div class="muted">Masofa: ~${ord.actual_km} km</div>
       </div>
       ${controls}
     `;

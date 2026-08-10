@@ -478,11 +478,9 @@ def set_order_status(order_id, status):
 
 
 def start_trip(order_id):
-    """Safar boshlanganda taksometr (actual_km) NOLDAN emas, balki mijozga aytilgan taxminiy
-    masofadan (est_km) boshlanadi. Aks holda (eski xato): actual_km 0'ga tushib qolgani uchun
-    haydovchi "+1 km" bosishi bilanoq narx (masalan 17 000 so'mdan 15 000 so'mga) PASAYIB ketardi —
-    chunki 1 km hali ham minimalka ichiga (INCLUDED_KM) kirib qolardi. Endi "+1 km" har doim
-    taxminiy narxdan YUQORIGA (qo'shimcha masofa sifatida) hisoblanadi, hech qachon pasaymaydi."""
+    """Safar boshlanganda actual_km mijozga aytilgan taxminiy masofaga (est_km) tenglashtiriladi.
+    Narx mijozga buyurtma berishda ko'rsatilgan FINAL narx — safar davomida (GPS orqali ham,
+    qo'lda ham) endi qayta hisoblanmaydi, faqat "kutish" (wait_price) alohida qo'shiladi."""
     with get_conn() as conn:
         conn.execute("UPDATE orders SET status='in_progress', actual_km=est_km WHERE id=?", (order_id,))
 

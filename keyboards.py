@@ -128,7 +128,7 @@ def trip_controls_kb(order_id, stage, waiting=False, auto=False):
     if stage == "in_progress":
         wait_btn = "⏹ Kutishni to'xtatish" if waiting else "⏳ Kutishni yoqish"
         wait_cb = f"waitoff:{order_id}" if waiting else f"waiton:{order_id}"
-        rows = [[InlineKeyboardButton(text="+1 km", callback_data=f"km:{order_id}")]]
+        rows = []
         if not waiting:
             rows.append([InlineKeyboardButton(text=wait_btn, callback_data=wait_cb),
                          InlineKeyboardButton(text="🏁 Yakunlash", callback_data=f"finish:{order_id}")])

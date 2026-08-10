@@ -293,25 +293,6 @@ async def start_trip(call: CallbackQuery, bot):
         pass
 
 
-@router.callback_query(F.data.startswith("km:"))
-async def add_km(call: CallbackQuery):
-    order_id = int(call.data.split(":")[1])
-    order = db.get_order(order_id)
-    if not order or order["driver_id"] != call.from_user.id or order["status"] != "in_progress":
-        await call.answer("Xatolik", show_alert=True)
-        return
-    region = db.get_region(order["region_id"])
-    tariff = db.get_tariff(order["tariff_id"])
-    new_km = round(order["actual_km"] + 1, 1)
-    new_price = pricing.fare(region, tariff, new_km) + order["wait_price"]
-    db.add_km(order_id, 1, new_price)
-    await call.message.edit_text(
-        f"🚗 Safar davom etmoqda.\n{new_km} km · {money(new_price)} so'm",
-        reply_markup=kb.trip_controls_kb(order_id, "in_progress"),
-    )
-    await call.answer(f"+1 km · {money(new_price)} so'm")
-
-
 @router.callback_query(F.data.startswith("waiton:"))
 async def wait_on(call: CallbackQuery, bot):
     order_id = int(call.data.split(":")[1])

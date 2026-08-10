@@ -82,21 +82,11 @@ async def set_location(request: web.Request):
     except (KeyError, ValueError):
         return err("lat va lng kerak.")
 
-    # Safar davomida (status == in_progress) km'ni QO'LDA emas, avtomatik hisoblaymiz:
-    # har bir yangi GPS nuqtasi kelganda, haydovchining OLDINGI saqlangan nuqtasi bilan
-    # YANGI nuqta orasidagi masofani (haversine) actual_km'ga qo'shib boramiz.
-    # "Kutish" (waiting) holatida — mashina to'xtagan, shu payt uchun alohida
-    # wait_charge ishlaydi — shu sabab bu yerda km qo'shilmaydi.
-    order = db.get_active_order_for_driver(driver["id"])
-    if order and order["status"] == "in_progress" and driver["lat"] is not None and driver["lng"] is not None:
-        delta_km = pricing.haversine_km(driver["lat"], driver["lng"], lat, lng)
-        if _MIN_GPS_DELTA_KM <= delta_km <= _MAX_GPS_JUMP_KM:
-            region = db.get_region(order["region_id"])
-            tariff = db.get_tariff(order["tariff_id"])
-            new_km = round(order["actual_km"] + delta_km, 2)
-            new_price = pricing.fare(region, tariff, new_km) + order["wait_price"]
-            db.add_km(order["id"], delta_km, new_price)
-
+    # MUHIM: mijozga buyurtma berishda ko'rsatilgan narx — FINAL narx. Safar davomida
+    # haydovchi qancha yursa ham (uzoqroq yo'ldan yursa ham, tirbandlikda tursa ham) narx
+    # O'ZGARMAYDI — faqat "kutish" (wait_price) alohida hisoblanadi, u masofaga bog'liq emas.
+    # Shu sabab bu yerda GPS nuqtalari orqali actual_km/price hisoblanmaydi — faqat
+    # haydovchining joriy joylashuvi (xaritada ko'rsatish/dispetcherlik uchun) saqlanadi.
     db.set_driver_location(driver["id"], lat, lng)
     return ok({"updated": True})
 
@@ -116,21 +106,6 @@ async def start_trip(request: web.Request):
     if not order or order["driver_id"] != driver["id"] or order["status"] != "accepted":
         return err("Bu safarni boshlab bo'lmaydi.", status=409)
     db.start_trip(order_id)
-    return ok(order_public(db.get_order(order_id)))
-
-
-@routes.post("/api/driver/order/{order_id}/km")
-async def add_km(request: web.Request):
-    driver = _require_driver(request)
-    order_id = int(request.match_info["order_id"])
-    order = db.get_order(order_id)
-    if not order or order["driver_id"] != driver["id"] or order["status"] != "in_progress":
-        return err("Xatolik.", status=409)
-    region = db.get_region(order["region_id"])
-    tariff = db.get_tariff(order["tariff_id"])
-    new_km = round(order["actual_km"] + 1, 1)
-    new_price = pricing.fare(region, tariff, new_km) + order["wait_price"]
-    db.add_km(order_id, 1, new_price)
     return ok(order_public(db.get_order(order_id)))
 
 
