@@ -149,7 +149,7 @@ async def reassign(call: CallbackQuery, bot):
             await bot.send_message(previous_driver_id, f"⚠️ Buyurtma #{order_id} dispetcher tomonidan boshqa haydovchiga qayta tayinlandi.")
         except Exception:
             pass
-    await call.message.edit_text(call.message.text + "\n\n✅ Haydovchi tayinlandi.")
+    await call.message.edit_text(call.message.text + f"\n\n✅ Haydovchi tayinlandi.")
     await call.answer()
     driver = db.get_driver(driver_id)
     try:

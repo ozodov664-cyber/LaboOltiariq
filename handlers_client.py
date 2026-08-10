@@ -1,6 +1,6 @@
 import asyncio
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
 
@@ -17,26 +17,15 @@ def money(n):
     return f"{round(n):,}".replace(",", " ")
 
 
-def _webapp_kb(webapp_url):
-    if not webapp_url:
-        return None
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🚕 Mini-ilovani ochish", web_app=WebAppInfo(url=webapp_url))
-    ]])
-
-
 # ---------------- registration ----------------
 @router.message(Command("start"))
-async def cmd_start(message: Message, state: FSMContext, webapp_url=None):
+async def cmd_start(message: Message, state: FSMContext):
     user = db.get_user(message.from_user.id)
     if user and user["name"] and user["phone"]:
         await message.answer(
-            f"Xush kelibsiz, {user['name'].split()[0]}! 🚕\nTaksi chaqirish uchun tugmani bosing "
-            f"(pastdagi menyu yoki quyidagi tugma orqali ham ochishingiz mumkin).",
+            f"Xush kelibsiz, {user['name'].split()[0]}! 🚕\nTaksi chaqirish uchun tugmani bosing.",
             reply_markup=kb.client_menu_kb(),
         )
-        if webapp_url:
-            await message.answer("👇 Mini-ilova (xarita, tarif, taksometr):", reply_markup=_webapp_kb(webapp_url))
         return
     await state.set_state(Registration.waiting_name)
     await message.answer(
@@ -58,7 +47,7 @@ async def reg_phone_contact(message: Message, state: FSMContext):
     db.upsert_user(message.from_user.id, name=data["name"], phone=message.contact.phone_number, role="client")
     await state.clear()
     await message.answer(
-        "Ro'yxatdan o'tish yakunlandi ✅\nEndi taksi chaqirishingiz mumkin.",
+        f"Ro'yxatdan o'tish yakunlandi ✅\nEndi taksi chaqirishingiz mumkin.",
         reply_markup=kb.client_menu_kb(),
     )
 

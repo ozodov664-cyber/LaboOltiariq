@@ -1,6 +1,12 @@
 /* LaboOltiariq — Telegram Mini App (bitta fayl, build kerak emas) */
 const tg = window.Telegram && window.Telegram.WebApp;
-if (tg) { tg.ready(); tg.expand(); }
+if (tg) {
+  tg.ready(); tg.expand();
+  // Premium mavzu: Telegram'ning o'z (och/qora) mavzusidan qat'i nazar, ilova doim
+  // o'zining brendli to'q rangdagi ko'rinishida ochiladi.
+  try { tg.setHeaderColor("#0A0E13"); } catch (e) {}
+  try { tg.setBackgroundColor("#0A0E13"); } catch (e) {}
+}
 const INIT_DATA = tg ? tg.initData : "";
 
 const state = {
@@ -66,11 +72,29 @@ function render() {
 function renderHome() {
   html(`
     ${topbar("LaboOltiariq Taxi")}
-    <div class="role-grid">
-      <div class="role-btn" onclick="navigate('client')"><span class="emoji">🚕</span><span class="label">Mijoz</span></div>
-      <div class="role-btn" onclick="navigate('driver')"><span class="emoji">🚗</span><span class="label">Haydovchi</span></div>
-      <div class="role-btn" onclick="navigate('dispatcher')"><span class="emoji">☎️</span><span class="label">Dispetcher</span></div>
-      <div class="role-btn" onclick="navigate('admin')"><span class="emoji">⚙️</span><span class="label">Admin</span></div>
+    <div class="container">
+      <div class="role-list">
+        <div class="role-card" onclick="navigate('client')">
+          <div class="role-ic">🚕</div>
+          <div><div class="role-name">Mijoz</div><div class="role-desc">Taksi buyurtma qilish</div></div>
+          <span class="role-chev">›</span>
+        </div>
+        <div class="role-card" onclick="navigate('driver')">
+          <div class="role-ic">🚗</div>
+          <div><div class="role-name">Haydovchi</div><div class="role-desc">Buyurtmalarni qabul qilish</div></div>
+          <span class="role-chev">›</span>
+        </div>
+        <div class="role-card" onclick="navigate('dispatcher')">
+          <div class="role-ic">☎️</div>
+          <div><div class="role-name">Dispetcher</div><div class="role-desc">Buyurtmalarni boshqarish</div></div>
+          <span class="role-chev">›</span>
+        </div>
+        <div class="role-card" onclick="navigate('admin')">
+          <div class="role-ic">⚙️</div>
+          <div><div class="role-name">Admin</div><div class="role-desc">Sozlamalar va boshqaruv</div></div>
+          <span class="role-chev">›</span>
+        </div>
+      </div>
     </div>
   `);
 }
