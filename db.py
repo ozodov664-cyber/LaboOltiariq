@@ -140,6 +140,8 @@ def init_db():
             ("kia_tent", "Kia — Tent", "Kia", "tent", 2000),
             ("hyundai_bort", "Hyundai — Bort", "Hyundai", "bort", 1000),
             ("hyundai_tent", "Hyundai — Tent", "Hyundai", "tent", 2000),
+            ("labo_bort", "Labo — Bort", "Labo", "bort", 1000),
+            ("labo_tent", "Labo — Tent", "Labo", "tent", 2000),
         ]:
             conn.execute(
                 # mult=1.0 shart emas (yangi bazalarda default bor), lekin eski bazalarda ushbu ustun
