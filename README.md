@@ -12,7 +12,20 @@ qilardi, port ochmasdi). Endi mini app uchun HTTP port kerak, shuning uchun `Pro
 `web:` ga o'zgartirildi. Railway avtomatik `PORT` muhit o'zgaruvchisini beradi — kodda
 allaqachon shu o'zgaruvchidan foydalaniladi (`web.py`).
 
-### Mini App'ni Telegram'ga ulash (BotFather orqali)
+### Mini App'ni Telegram'ga ulash
+
+**A) Avtomatik usul (yangi, tavsiya etiladi):** Railway'da (yoki boshqa serveringizda) muhit
+o'zgaruvchisiga `WEBAPP_URL` qo'shing — masalan
+`WEBAPP_URL=https://labooltiariq-bot-production.up.railway.app`. Bot har safar ishga
+tushganda **o'zi** Telegram menyu tugmasini shu manzilga sozlaydi (`main.py` ichida
+`bot.set_chat_menu_button(...)`) — BotFather'ga qo'lda kirish shart emas. Bundan tashqari,
+`/start` bosilganda mijozga alohida "🚕 Mini-ilovani ochish" tugmasi ham chiqadi (menyu
+belgisini payqamay qolgan foydalanuvchilar uchun).
+
+`WEBAPP_URL` o'rnatilmagan bo'lsa, bot shu haqda ogohlantirish yozadi (log'da) va hech qanday
+tugma qo'shmaydi — mini appga faqat pastdagi **B usul** orqali kirish mumkin bo'ladi.
+
+**B) Qo'lda usul (BotFather orqali):**
 
 1. Railway'da deploy qilingandan keyin, loyihangizning ommaviy domenini oling: Railway
    loyihasi → Settings → Networking → **Generate Domain** (masalan
@@ -26,7 +39,10 @@ allaqachon shu o'zgaruvchidan foydalaniladi (`web.py`).
    ochiladi va foydalanuvchi (mijoz/haydovchi/dispetcher/admin) rolini tanlaydi
 
 **Eslatma:** mini app faqat **HTTPS** orqali ishlaydi — Railway domeni avtomatik HTTPS
-beradi, qo'shimcha sozlash shart emas.
+beradi, qo'shimcha sozlash shart emas. Havolani brauzerda to'g'ridan-to'g'ri ochish
+ishlamaydi (yoki bo'limlar noto'g'ri ishlaydi) — chunki Telegram foydalanuvchini
+tasdiqlovchi `initData` faqat bot ichidan (menyu tugmasi yoki shu kabi web_app tugmasi
+orqali) ochilganda beriladi.
 
 ### Mini App arxitekturasi (qisqacha)
 
