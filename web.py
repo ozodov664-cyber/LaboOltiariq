@@ -16,8 +16,23 @@ async def health(request):
     return web.json_response({"ok": True, "service": "labooltiariq-webapp"})
 
 
+@web.middleware
+async def no_cache_middleware(request, handler):
+    """Mini-app frontend (index.html, /static/*) doim eng so'nggi versiyada yuklansin —
+    Telegram'ning ichki WebView'i (ayniqsa iOS'da) statik fayllarni juda qattiq keshlab
+    qo'yadi, shu sabab yangi deploy qilingandan keyin ham eski JS/CSS ko'rsatilib qolib,
+    tugmalar "ishlamay qolgan" ko'rinishga olib kelishi mumkin edi. API javoblariga
+    tegilmaydi — faqat frontend fayllariga."""
+    response = await handler(request)
+    if request.path == "/" or request.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
+
 def create_app(bot) -> web.Application:
-    app = web.Application()
+    app = web.Application(middlewares=[no_cache_middleware])
     app["bot"] = bot
 
     app.router.add_get("/health", health)
