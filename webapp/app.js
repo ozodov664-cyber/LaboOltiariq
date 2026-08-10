@@ -161,13 +161,19 @@ async function renderClientOrder() {
 
       <label>Qayerdan (manzil)</label>
       <input id="o-pickup" placeholder="Masalan: Bozor yonida" value="${o.pickup_text || ""}">
-      <button class="btn small secondary" onclick="useMyLocation('pickup')">📍 Joriy joylashuvim</button>
 
       <label>Qayerga (manzil)</label>
       <input id="o-dest" placeholder="Masalan: Avtovokzal" value="${o.dest_text || ""}">
-      <button class="btn small secondary" onclick="useMyLocation('dest')">📍 Xaritadan/joylashuvdan</button>
 
-      <label>Taxminiy masofa (km) ${o.pickup_lat && o.dest_lat ? '<span class="muted">(GPS orqali avtomatik hisoblanadi)</span>' : ''}</label>
+      <div class="map-toolbar">
+        <button type="button" class="pin-btn pin-pickup active" id="pin-pickup-btn" onclick="setPinMode('pickup')">🟢 Qayerdan</button>
+        <button type="button" class="pin-btn pin-dest" id="pin-dest-btn" onclick="setPinMode('dest')">🔴 Qayerga</button>
+        <button type="button" class="pin-btn pin-gps" onclick="useMyLocation()">📍 Men shu yerdaman</button>
+      </div>
+      <div id="order-map"></div>
+      <div class="muted center" id="map-hint" style="margin:-6px 0 12px;">Xaritada bosing yoki markerni surib joyni belgilang</div>
+
+      <label>Taxminiy masofa (km) ${o.pickup_lat && o.dest_lat ? '<span class="muted">(xarita bo\'yicha avtomatik hisoblandi)</span>' : ''}</label>
       <input id="o-km" type="number" min="0" step="0.5" value="${o.est_km}">
 
       <label>To'lov turi</label>
@@ -188,26 +194,100 @@ async function renderClientOrder() {
   document.getElementById("o-km").onchange = e => { o.est_km = parseFloat(e.target.value) || 0; refreshTariffPrices(); };
   document.getElementById("o-pay").onchange = e => { o.payment_method = e.target.value; };
   if (!o.region_id && state.meta.regions[0]) o.region_id = state.meta.regions[0].id;
+  initOrderMap();
   refreshTariffPrices();
 }
 
-function useMyLocation(which) {
+// ---------------- ORDER MAP (Yandex Taxi kabi: xaritadan qayerdan/qayerga belgilash) ----------------
+let orderMap = null, pickupMarker = null, destMarker = null, pinMode = "pickup";
+const DEFAULT_CENTER = [39.6270, 66.9750]; // Qarshi, O'zbekiston — hech qanday nuqta bo'lmasa shu yerdan boshlanadi
+
+function setPinMode(which) {
+  pinMode = which;
+  const pb = document.getElementById("pin-pickup-btn"), db_ = document.getElementById("pin-dest-btn");
+  if (pb) pb.classList.toggle("active", which === "pickup");
+  if (db_) db_.classList.toggle("active", which === "dest");
+  const hint = document.getElementById("map-hint");
+  if (hint) hint.textContent = which === "pickup" ? "Xaritada bosing — QAYERDAN nuqtasini belgilaysiz" : "Xaritada bosing — QAYERGA nuqtasini belgilaysiz";
+}
+
+function initOrderMap() {
+  const el = document.getElementById("order-map");
+  if (!el || typeof L === "undefined") return;
+  const o = state.order;
+  const center = o.pickup_lat ? [o.pickup_lat, o.pickup_lng] : DEFAULT_CENTER;
+  orderMap = L.map("order-map", { attributionControl: false }).setView(center, o.pickup_lat ? 14 : 12);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(orderMap);
+
+  if (o.pickup_lat) placeMarker("pickup", o.pickup_lat, o.pickup_lng, false);
+  if (o.dest_lat) placeMarker("dest", o.dest_lat, o.dest_lng, false);
+
+  orderMap.on("click", (e) => {
+    placeMarker(pinMode, e.latlng.lat, e.latlng.lng, true);
+    // birinchi nuqta qo'yilgach, avtomatik ikkinchisiga o'tkazamiz — tezroq bo'lsin
+    if (pinMode === "pickup" && !state.order.dest_lat) setPinMode("dest");
+  });
+
+  // agar hali hech qanday nuqta yo'q bo'lsa, foydalanuvchining joriy joylashuvidan boshlaymiz (ruxsat bergan bo'lsa)
+  if (!o.pickup_lat && navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(pos => {
+      if (state.order.pickup_lat) return; // foydalanuvchi shu orada o'zi bosgan bo'lishi mumkin
+      orderMap.setView([pos.coords.latitude, pos.coords.longitude], 14);
+    }, () => {}, { timeout: 4000 });
+  }
+  setTimeout(() => orderMap && orderMap.invalidateSize(), 150);
+}
+
+function makeDivIcon(color) {
+  return L.divIcon({
+    className: "",
+    html: `<div class="pin-marker" style="background:${color}"></div>`,
+    iconSize: [22, 22], iconAnchor: [11, 22],
+  });
+}
+
+function placeMarker(which, lat, lng, fromUser) {
+  const o = state.order;
+  const color = which === "pickup" ? "#2BB68A" : "#E85D52";
+  if (which === "pickup") {
+    o.pickup_lat = lat; o.pickup_lng = lng;
+    if (fromUser || !o.pickup_text) { o.pickup_text = "Xaritadan belgilangan nuqta"; }
+    const inp = document.getElementById("o-pickup"); if (inp) inp.value = o.pickup_text;
+    if (pickupMarker) orderMap.removeLayer(pickupMarker);
+    pickupMarker = L.marker([lat, lng], { draggable: true, icon: makeDivIcon(color) }).addTo(orderMap);
+    pickupMarker.on("dragend", () => { const p = pickupMarker.getLatLng(); placeMarker("pickup", p.lat, p.lng, true); });
+  } else {
+    o.dest_lat = lat; o.dest_lng = lng;
+    if (fromUser || !o.dest_text) { o.dest_text = "Xaritadan belgilangan nuqta"; }
+    const inp = document.getElementById("o-dest"); if (inp) inp.value = o.dest_text;
+    if (destMarker) orderMap.removeLayer(destMarker);
+    destMarker = L.marker([lat, lng], { draggable: true, icon: makeDivIcon(color) }).addTo(orderMap);
+    destMarker.on("dragend", () => { const p = destMarker.getLatLng(); placeMarker("dest", p.lat, p.lng, true); });
+  }
+  recalcRouteKm();
+}
+
+async function recalcRouteKm() {
+  const o = state.order;
+  if (!(o.pickup_lat && o.dest_lat)) return;
+  try {
+    const r = await post("/api/client/route_km", {
+      pickup_lat: o.pickup_lat, pickup_lng: o.pickup_lng,
+      dest_lat: o.dest_lat, dest_lng: o.dest_lng,
+    });
+    o.est_km = r.km;
+    const km = document.getElementById("o-km"); if (km) km.value = r.km;
+  } catch (e) { /* jim, mavjud km bilan davom etamiz */ }
+  refreshTariffPrices();
+}
+
+function useMyLocation() {
   if (!navigator.geolocation) return showError("Brauzeringiz joylashuvni qo'llab-quvvatlamaydi.");
-  navigator.geolocation.getCurrentPosition(async pos => {
+  navigator.geolocation.getCurrentPosition(pos => {
     const { latitude, longitude } = pos.coords;
-    if (which === "pickup") { state.order.pickup_lat = latitude; state.order.pickup_lng = longitude; state.order.pickup_text = state.order.pickup_text || "Joriy joylashuv"; document.getElementById("o-pickup").value = state.order.pickup_text; }
-    else { state.order.dest_lat = latitude; state.order.dest_lng = longitude; state.order.dest_text = state.order.dest_text || "Xaritadagi nuqta"; document.getElementById("o-dest").value = state.order.dest_text; }
-    if (state.order.pickup_lat && state.order.dest_lat) {
-      try {
-        const r = await post("/api/client/route_km", {
-          pickup_lat: state.order.pickup_lat, pickup_lng: state.order.pickup_lng,
-          dest_lat: state.order.dest_lat, dest_lng: state.order.dest_lng,
-        });
-        state.order.est_km = r.km;
-        document.getElementById("o-km").value = r.km;
-      } catch (e) { /* jim, mavjud km bilan davom etamiz */ }
-    }
-    refreshTariffPrices();
+    placeMarker(pinMode, latitude, longitude, true);
+    if (orderMap) orderMap.setView([latitude, longitude], 15);
+    if (pinMode === "pickup" && !state.order.dest_lat) setPinMode("dest");
   }, () => showError("Joylashuvga ruxsat berilmadi."));
 }
 
