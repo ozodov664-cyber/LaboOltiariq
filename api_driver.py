@@ -133,7 +133,14 @@ async def wait_off(request: web.Request):
     seconds = max(0, int(time.time()) - started)
     added_price = pricing.wait_charge(seconds, region["wait_per_min"])
     base_price = pricing.fare(region, tariff, order["actual_km"])
-    new_total = base_price + order["wait_price"] + added_price
+    # MUHIM: mijozga buyurtma berishda ko'rsatilgan narx (quoted_price) — masofa (km) qismi
+    # uchun QAT'IY YUQORI CHEGARA — bu qism hech qachon undan oshmaydi. LEKIN kutish puli
+    # (wait_price) — bu ALOHIDA, qonuniy xarajat (mijoz haydovchini kutgani uchun) va shu
+    # chegaraga kirmaydi, chegaralangan bazaviy narx USTIGA qo'shiladi. Aks holda (agar
+    # kutish ham shu chegaraga kiritilsa) haydovchi kutgani uchun UMUMAN pul ololmay qolar edi.
+    distance_ceiling = order.get("quoted_price") or order["price"]
+    capped_base = min(base_price, distance_ceiling)
+    new_total = capped_base + order["wait_price"] + added_price
     db.stop_waiting(order_id, seconds, added_price, new_total)
     return ok(order_public(db.get_order(order_id)))
 
@@ -148,6 +155,37 @@ async def finish_trip(request: web.Request):
     db.finish_order(order_id)
     db.set_driver_status(driver["id"], "available")
     return ok(order_public(db.get_order(order_id)))
+
+
+@routes.get("/api/driver/order/{order_id}/navigation")
+async def navigation(request: web.Request):
+    """Yandex Navigator kabi: haydovchining joriy joylashuvidan nishonga (safar boshlanmagan
+    bo'lsa — mijoz turgan joyga, boshlangan bo'lsa — manzilga) qadar marshrut chizig'i va
+    burilish-burilish (turn-by-turn) ko'rsatmalarni qaytaradi."""
+    driver = _require_driver(request)
+    order_id = int(request.match_info["order_id"])
+    order = db.get_order(order_id)
+    if not order or order["driver_id"] != driver["id"]:
+        return err("Xatolik.", status=409)
+    try:
+        lat = float(request.query["lat"])
+        lng = float(request.query["lng"])
+    except (KeyError, ValueError):
+        return err("lat va lng kerak.")
+
+    if order["status"] == "accepted":
+        target_lat, target_lng, label = order["pickup_lat"], order["pickup_lng"], "Mijoz"
+    else:
+        target_lat, target_lng, label = order["dest_lat"], order["dest_lng"], "Manzil"
+
+    if target_lat is None or target_lng is None:
+        return ok(None)
+
+    nav = await pricing.route_navigation(lat, lng, target_lat, target_lng)
+    if not nav:
+        return err("Marshrutni hozircha hisoblab bo'lmadi. Birozdan keyin urinib ko'ring.", status=503)
+    nav["target_label"] = label
+    return ok(nav)
 
 
 @routes.post("/api/driver/street_pickup")

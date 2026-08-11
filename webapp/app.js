@@ -41,7 +41,11 @@ function navigate(hash) { location.hash = hash; }
 window.addEventListener("hashchange", () => { clearPolls(); render(); });
 window.addEventListener("DOMContentLoaded", render);
 
-function clearPolls() { state.polls.forEach(clearInterval); state.polls = []; }
+function clearPolls() {
+  state.polls.forEach(clearInterval); state.polls = [];
+  stopDriverNav();
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+}
 function poll(fn, ms) { fn(); const id = setInterval(fn, ms); state.polls.push(id); }
 
 function app() { return document.getElementById("app"); }
@@ -49,11 +53,41 @@ function html(s) { app().innerHTML = s; }
 function topbar(title, backHash) {
   return `<div class="topbar">${backHash ? `<span class="back" onclick="navigate('${backHash}')">‹</span>` : ""}<h1>${title}</h1></div>`;
 }
-function showError(msg) {
-  const box = document.getElementById("err-box");
-  if (box) box.innerHTML = `<div class="error">⚠️ ${msg}</div>`;
-  else if (tg && tg.showAlert) tg.showAlert(msg);
-  else alert(msg);
+function loading() { return `<div class="loading-box"><div class="loader"></div><div class="muted">Yuklanmoqda...</div></div>`; }
+
+// ---------------- Toast (barcha xato/tasdiq xabarlari uchun yagona, premium ko'rinish) ----------------
+let toastBox = null, toastTimer = null;
+function ensureToastBox() {
+  if (toastBox && document.body.contains(toastBox)) return toastBox;
+  toastBox = document.createElement("div");
+  toastBox.className = "toast-wrap";
+  document.body.appendChild(toastBox);
+  return toastBox;
+}
+function showToast(msg, kind) {
+  const wrap = ensureToastBox();
+  const el = document.createElement("div");
+  el.className = `toast toast-${kind || "error"}`;
+  el.innerHTML = `<span class="toast-ic">${kind === "success" ? "✅" : kind === "info" ? "ℹ️" : "⚠️"}</span><span>${msg}</span>`;
+  wrap.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("show"));
+  setTimeout(() => { el.classList.remove("show"); setTimeout(() => el.remove(), 250); }, 3600);
+}
+function showError(msg) { showToast(msg, "error"); }
+function showSuccess(msg) { showToast(msg, "success"); }
+
+// ---------------- Tugmani ikki marta bosishdan himoya (yuborilayotganda disable + spinner) ----------------
+async function withLoading(btn, fn) {
+  if (!btn || btn.disabled) return;
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  btn.classList.add("is-loading");
+  btn.innerHTML = `<span class="btn-spinner"></span>`;
+  try {
+    await fn();
+  } finally {
+    if (btn.isConnected) { btn.disabled = false; btn.classList.remove("is-loading"); btn.innerHTML = original; }
+  }
 }
 
 function render() {
@@ -71,26 +105,30 @@ function render() {
 // ---------------- HOME ----------------
 function renderHome() {
   html(`
-    ${topbar("LaboOltiariq Taxi")}
-    <div class="container">
+    <div class="brand-hero">
+      <div class="brand-mark">🚕</div>
+      <div class="brand-title">LaboOltiariq Taxi</div>
+      <div class="brand-sub">Ishonchli haydovchilar · Aniq narx · Tez yetib borish</div>
+    </div>
+    <div class="container" style="padding-top:0;">
       <div class="role-list">
         <div class="role-card" onclick="navigate('client')">
-          <div class="role-ic">🚕</div>
+          <div class="role-ic ic-client">🚕</div>
           <div><div class="role-name">Mijoz</div><div class="role-desc">Taksi buyurtma qilish</div></div>
           <span class="role-chev">›</span>
         </div>
         <div class="role-card" onclick="navigate('driver')">
-          <div class="role-ic">🚗</div>
+          <div class="role-ic ic-driver">🚗</div>
           <div><div class="role-name">Haydovchi</div><div class="role-desc">Buyurtmalarni qabul qilish</div></div>
           <span class="role-chev">›</span>
         </div>
         <div class="role-card" onclick="navigate('dispatcher')">
-          <div class="role-ic">☎️</div>
+          <div class="role-ic ic-dispatcher">☎️</div>
           <div><div class="role-name">Dispetcher</div><div class="role-desc">Buyurtmalarni boshqarish</div></div>
           <span class="role-chev">›</span>
         </div>
         <div class="role-card" onclick="navigate('admin')">
-          <div class="role-ic">⚙️</div>
+          <div class="role-ic ic-admin">⚙️</div>
           <div><div class="role-name">Admin</div><div class="role-desc">Sozlamalar va boshqaruv</div></div>
           <span class="role-chev">›</span>
         </div>
@@ -109,7 +147,7 @@ async function renderClient(sub, arg) {
 }
 
 async function renderClientHome() {
-  html(`${topbar("Mijoz", "")}<div class="container center">Yuklanmoqda...</div>`);
+  html(`${topbar("Mijoz", "")}<div class="container center">${loading()}</div>`);
   let me;
   try { me = await get("/api/client/me"); } catch (e) { return showError(e.message); }
   if (!me || !me.name || !me.phone) return renderClientRegister();
@@ -133,8 +171,7 @@ function renderClientRegister() {
       <p class="muted">Taksi chaqirish uchun ismingiz va telefon raqamingizni kiriting.</p>
       <label>Ismingiz</label><input id="c-name" placeholder="Ism Familiya">
       <label>Telefon raqam</label><input id="c-phone" placeholder="+998901234567">
-      <div id="err-box"></div>
-      <button class="btn" onclick="clientRegisterSubmit()">Davom etish</button>
+      <button class="btn" onclick="withLoading(this, clientRegisterSubmit)">Davom etish</button>
     </div>
   `);
 }
@@ -147,7 +184,7 @@ async function clientRegisterSubmit() {
 }
 
 async function renderClientOrder() {
-  html(`${topbar("Buyurtma berish", "client")}<div class="container center">Yuklanmoqda...</div>`);
+  html(`${topbar("Buyurtma berish", "client")}<div class="container center">${loading()}</div>`);
   if (!state.meta) {
     try { state.meta = await get("/api/client/meta"); } catch (e) { return showError(e.message); }
   }
@@ -156,13 +193,14 @@ async function renderClientOrder() {
   html(`
     ${topbar("Buyurtma berish", "client")}
     <div class="container">
-      <label>Hudud</label>
+      <div class="step-label"><span class="num">1</span>Hudud</div>
       <select id="o-region">${regionOpts}</select>
 
-      <label>Qayerdan (manzil)</label>
+      <div class="step-label"><span class="num">2</span>Manzillar</div>
+      <label>Qayerdan</label>
       <input id="o-pickup" placeholder="Masalan: Bozor yonida" value="${o.pickup_text || ""}">
 
-      <label>Qayerga (manzil)</label>
+      <label>Qayerga</label>
       <input id="o-dest" placeholder="Masalan: Avtovokzal" value="${o.dest_text || ""}">
 
       <div class="map-toolbar">
@@ -176,16 +214,15 @@ async function renderClientOrder() {
       <label>Taxminiy masofa (km) ${o.pickup_lat && o.dest_lat ? '<span class="muted">(xarita bo\'yicha avtomatik hisoblandi)</span>' : ''}</label>
       <input id="o-km" type="number" min="0" step="0.5" value="${o.est_km}">
 
-      <label>To'lov turi</label>
+      <div class="step-label"><span class="num">3</span>To'lov</div>
       <select id="o-pay">
         <option value="naqd" ${o.payment_method === "naqd" ? "selected" : ""}>💵 Naqd</option>
         <option value="karta" ${o.payment_method === "karta" ? "selected" : ""}>💳 Karta</option>
       </select>
 
-      <div class="spacer"></div>
+      <div class="step-label"><span class="num">4</span>Mashina tanlang</div>
       <div id="tariff-list"></div>
-      <div id="err-box"></div>
-      <button class="btn" id="order-submit-btn" onclick="clientSubmitOrder()" disabled>Mashina tanlang</button>
+      <button class="btn" id="order-submit-btn" onclick="withLoading(this, clientSubmitOrder)" disabled>Mashina tanlang</button>
     </div>
   `);
   document.getElementById("o-region").onchange = e => { o.region_id = e.target.value; refreshTariffPrices(); };
@@ -296,7 +333,18 @@ async function refreshTariffPrices() {
   if (!box) return;
   const o = state.order;
   if (!o.region_id) return;
-  box.innerHTML = state.meta.tariffs.map(t => `<div class="option" id="opt-${t.id}"><span class="name">${t.name}</span><span class="price">...</span></div>`).join("");
+  const carIcon = (t) => t.body === "tent" ? "🚐" : "🚚";
+  box.innerHTML = state.meta.tariffs.map(t => `
+    <div class="option" id="opt-${t.id}">
+      <div class="option-left">
+        <div class="option-ic">${carIcon(t)}</div>
+        <div><div class="name">${t.name}</div><div class="body-tag">${t.car}${t.body ? " · " + t.body : ""}</div></div>
+      </div>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span class="price">...</span>
+        <span class="check">✓</span>
+      </div>
+    </div>`).join("");
   for (const t of state.meta.tariffs) {
     try {
       const r = await get(`/api/client/price?region_id=${o.region_id}&tariff_id=${t.id}&km=${o.est_km || 0}`);
@@ -325,7 +373,7 @@ async function clientSubmitOrder() {
 }
 
 async function renderClientStatus(orderId) {
-  html(`${topbar("Buyurtma", "client")}<div class="container" id="status-box">Yuklanmoqda...</div>`);
+  html(`${topbar("Buyurtma", "client")}<div class="container" id="status-box">${loading()}</div>`);
   poll(async () => {
     let order;
     try { order = await get(`/api/client/order/${orderId}`); } catch (e) { return; }
@@ -344,7 +392,7 @@ async function renderClientStatus(orderId) {
     }
     let actions = "";
     if (order.status === "new" || order.status === "accepted") {
-      actions = `<button class="btn danger" onclick="clientCancelOrder(${orderId})">Bekor qilish</button>`;
+      actions = `<button class="btn danger" onclick="withLoading(this, () => clientCancelOrder(${orderId}))">Bekor qilish</button>`;
     }
     if (order.status === "finished" && order.rating == null) {
       actions = `
@@ -401,7 +449,7 @@ async function clientRate(orderId, stars) {
 }
 
 async function renderClientHistory() {
-  html(`${topbar("Buyurtmalarim", "client")}<div class="container" id="hist">Yuklanmoqda...</div>`);
+  html(`${topbar("Buyurtmalarim", "client")}<div class="container" id="hist">${loading()}</div>`);
   let orders;
   try { orders = await get("/api/client/orders"); } catch (e) { return showError(e.message); }
   const labels = { new: "Qidirilmoqda", accepted: "Qabul qilindi", in_progress: "Yo'lda", waiting: "Kutmoqda", finished: "Yakunlandi", cancelled: "Bekor qilindi" };
@@ -415,7 +463,7 @@ async function renderClientHistory() {
 
 // ================= DRIVER =================
 async function renderDriver(sub) {
-  html(`${topbar("Haydovchi", "")}<div class="container center">Yuklanmoqda...</div>`);
+  html(`${topbar("Haydovchi", "")}<div class="container center">${loading()}</div>`);
   let me;
   try { me = await get("/api/driver/me"); }
   catch (e) { return html(`${topbar("Haydovchi", "")}<div class="container"><div class="error">${e.message}</div></div>`); }
@@ -436,7 +484,7 @@ async function renderDriver(sub) {
         <label class="switch"><input type="checkbox" id="online-toggle" ${me.status === "available" ? "checked" : ""}> Onlayn</label>
       </div>
       <div id="trip-box"></div>
-      ${!active ? `<button class="btn secondary" onclick="driverStreetPickup()">🛣 Bordyurdan mijoz oldim</button>` : ""}
+      ${!active ? `<button class="btn secondary" onclick="withLoading(this, driverStreetPickup)">🛣 Bordyurdan mijoz oldim</button>` : ""}
     </div>
   `);
   document.getElementById("online-toggle").onchange = async (e) => {
@@ -453,31 +501,155 @@ async function renderDriver(sub) {
     try { ord = await get("/api/driver/order/active"); } catch (e) { return; }
     const box = document.getElementById("trip-box");
     if (!box) return;
-    if (!ord) { box.innerHTML = ""; return; }
+    if (!ord) { box.innerHTML = ""; stopDriverNav(); state.lastNavOrderId = null; return; }
     const labels = { accepted: "Qabul qilindi", in_progress: "Yo'lda", waiting: "Kutmoqda" };
     let controls = "";
-    if (ord.status === "accepted") controls = `<button class="btn" onclick="driverAction(${ord.id},'start')">▶️ Safarni boshlash</button>`;
+    if (ord.status === "accepted") controls = `<button class="btn" onclick="withLoading(this, () => driverAction(${ord.id},'start'))">▶️ Safarni boshlash</button>`;
     if (ord.status === "in_progress") controls = `
-      <button class="btn secondary" onclick="driverAction(${ord.id},'wait_on')">⏸ Kutish boshlash</button>
-      <button class="btn danger" onclick="driverAction(${ord.id},'finish')">🏁 Safarni yakunlash</button>`;
+      <button class="btn secondary" onclick="withLoading(this, () => driverAction(${ord.id},'wait_on'))">⏸ Kutish boshlash</button>
+      <button class="btn danger" onclick="withLoading(this, () => driverAction(${ord.id},'finish'))">🏁 Safarni yakunlash</button>`;
     if (ord.status === "waiting") controls = `
-      <button class="btn" onclick="driverAction(${ord.id},'wait_off')">▶️ Kutishni tugatish</button>
-      <button class="btn danger" onclick="driverAction(${ord.id},'finish')">🏁 Safarni yakunlash</button>`;
+      <button class="btn" onclick="withLoading(this, () => driverAction(${ord.id},'wait_off'))">▶️ Kutishni tugatish</button>
+      <button class="btn danger" onclick="withLoading(this, () => driverAction(${ord.id},'finish'))">🏁 Safarni yakunlash</button>`;
     box.innerHTML = `
       <div class="card">
         <span class="status-badge status-${ord.status}">${labels[ord.status] || ord.status}</span>
         <div class="price-big">${money(ord.price)} so'm</div>
+        <div class="muted center" style="margin-top:-6px;">
+          ${ord.wait_price > 0 ? `shu jumladan kutish: +${money(ord.wait_price)} so'm · ` : ""}Masofa narxi mijozga ko'rsatilgandan oshmaydi
+        </div>
         <div class="muted">📍 ${ord.pickup_text || "-"}</div>
         <div class="muted">🏁 ${ord.dest_text || "-"}</div>
-        <div class="muted">Masofa: ~${ord.actual_km} km</div>
       </div>
+      <div id="nav-box"></div>
       ${controls}
     `;
+    if (ord.status === "accepted" || ord.status === "in_progress") {
+      initDriverNav(ord);
+    } else {
+      stopDriverNav();
+    }
   }, 4000);
 }
 
 async function driverAction(orderId, action) {
   try { await post(`/api/driver/order/${orderId}/${action}`); } catch (e) { showError(e.message); }
+}
+
+// ---------------- DRIVER NAVIGATION (Yandex Navigator kabi: xarita + ovozli yo'l-yo'riq) ----------------
+let navMap = null, navMarker = null, navPolyline = null, navPollTimer = null, navLastPos = null;
+let navSpokenKey = null, navLastFetchAt = 0, navFailCount = 0;
+
+function initDriverNav(order) {
+  const navBox = document.getElementById("nav-box");
+  if (!navBox) return;
+  if (!navBox.querySelector("#nav-map")) {
+    navBox.innerHTML = `
+      <div id="nav-map"></div>
+      <div class="nav-banner" id="nav-banner">
+        <div class="nav-dist" id="nav-dist">—</div>
+        <div class="nav-instruction" id="nav-instruction">Marshrut hisoblanmoqda...</div>
+      </div>
+    `;
+  }
+  if (state.lastNavOrderId !== order.id) {
+    state.lastNavOrderId = order.id;
+    navSpokenKey = null;
+    navFailCount = 0;
+    state.navData = null;
+    if (navMap) { navMap.remove(); navMap = null; navPolyline = null; navMarker = null; }
+  }
+  if (!navMap && typeof L !== "undefined") {
+    navMap = L.map("nav-map", { attributionControl: false }).setView([41.3111, 69.2797], 13);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(navMap);
+    setTimeout(() => navMap && navMap.invalidateSize(), 150);
+  }
+  if (!navPollTimer && navigator.geolocation) {
+    navPollTimer = navigator.geolocation.watchPosition(
+      pos => onDriverNavPosition(order.id, pos.coords.latitude, pos.coords.longitude),
+      () => {}, { enableHighAccuracy: true, maximumAge: 4000 }
+    );
+  }
+}
+
+function stopDriverNav() {
+  if (navPollTimer && navigator.geolocation) { navigator.geolocation.clearWatch(navPollTimer); navPollTimer = null; }
+}
+
+async function onDriverNavPosition(orderId, lat, lng) {
+  if (navMap) {
+    if (!navMarker) navMarker = L.marker([lat, lng], { icon: makeDivIcon("#58A6E8") }).addTo(navMap);
+    else navMarker.setLatLng([lat, lng]);
+    navMap.setView([lat, lng], navMap.getZoom() < 14 ? 15 : navMap.getZoom());
+  }
+  navLastPos = { lat, lng };
+  // Marshrutni har 12 soniyada bir marta qayta so'raymiz (OSRM'ni ortiqcha band qilmaslik uchun);
+  // orada esa keyingi manyovrgacha bo'lgan masofani mahalliy (haversine) hisoblab, ovozli
+  // ogohlantirishni shu bilan yangilab turamiz — shunda navigatsiya "sekinlashib qolmaydi".
+  const now = Date.now();
+  if (!state.navData || now - navLastFetchAt > 12000) {
+    navLastFetchAt = now;
+    try {
+      const nav = await get(`/api/driver/order/${orderId}/navigation?lat=${lat}&lng=${lng}`);
+      state.navData = nav;
+      navFailCount = 0;
+      if (nav && navMap) {
+        if (navPolyline) navMap.removeLayer(navPolyline);
+        navPolyline = L.polyline(nav.geometry, { color: "#F0A93B", weight: 5, opacity: .85 }).addTo(navMap);
+      }
+    } catch (e) {
+      // OSRM (bepul, sinov uchun server) ba'zan javob bermasligi mumkin. Bir necha marta
+      // ketma-ket urinib ko'ramiz, lekin haydovchini abadiy "hisoblanmoqda..." holatida
+      // qoldirmaslik uchun — muvaffaqiyatsiz bo'lsa, buni ANIQ aytamiz.
+      navFailCount++;
+      if (navFailCount >= 3) {
+        const instrEl = document.getElementById("nav-instruction"), distEl = document.getElementById("nav-dist");
+        if (instrEl) instrEl.textContent = "Marshrut hozircha olinmadi — xaritadagi belgi orqali yo'nalishni o'zingiz kuzating";
+        if (distEl) distEl.textContent = "—";
+      }
+    }
+  }
+  updateNavGuidance(lat, lng);
+}
+
+function haversineMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000, p1 = lat1 * Math.PI / 180, p2 = lat2 * Math.PI / 180;
+  const dphi = (lat2 - lat1) * Math.PI / 180, dlmb = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dphi / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dlmb / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function updateNavGuidance(lat, lng) {
+  const nav = state.navData;
+  const distEl = document.getElementById("nav-dist"), instrEl = document.getElementById("nav-instruction");
+  if (!nav || !nav.steps || !nav.steps.length) return;
+  // Eng yaqin (hali o'tib ketilmagan) manyovr nuqtasini topamiz
+  let next = nav.steps.find(s => haversineMeters(lat, lng, s.lat, s.lng) > 15) || nav.steps[nav.steps.length - 1];
+  const dist = Math.round(haversineMeters(lat, lng, next.lat, next.lng));
+  if (distEl) distEl.textContent = dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${dist} m`;
+  if (instrEl) instrEl.textContent = capitalizeUz(next.text_uz) + (next.street ? ` (${next.street})` : "");
+  speakNavIfNeeded(next, dist);
+}
+
+function capitalizeUz(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+
+function speakNavIfNeeded(step, dist) {
+  if (!("speechSynthesis" in window)) return;
+  const thresholds = [300, 200, 100, 30];
+  const bucket = thresholds.find(t => dist <= t);
+  if (!bucket) return;
+  const key = `${step.lat.toFixed(5)},${step.lng.toFixed(5)},${bucket}`;
+  if (navSpokenKey === key) return;
+  navSpokenKey = key;
+  const phrase = bucket <= 30
+    ? capitalizeUz(step.text_uz)
+    : `${bucket} metrdan so'ng ${step.text_uz}`;
+  try {
+    const u = new SpeechSynthesisUtterance(phrase);
+    u.lang = "ru-RU"; // ko'pchilik brauzerlarda o'zbekcha ovoz yo'q — ruscha talaffuz eng yaqin/tushunarli variant
+    u.rate = 1.0;
+    window.speechSynthesis.speak(u);
+  } catch (e) { /* jim */ }
 }
 
 function startDriverLocationWatch() {
@@ -492,17 +664,32 @@ function stopDriverLocationWatch() {
 
 async function driverStreetPickup() {
   let meta;
-  try { meta = state.meta || await get("/api/client/meta"); } catch (e) { return showError(e.message); }
-  const region = prompt("Hudud nomini kiriting:\n" + meta.regions.map(r => r.name).join(", "));
-  const r = meta.regions.find(x => x.name.toLowerCase() === (region || "").toLowerCase());
-  if (!r) return showError("Hudud topilmadi.");
-  try { await post("/api/driver/street_pickup", { region_id: r.id }); render(); } catch (e) { showError(e.message); }
+  try { meta = state.meta || await get("/api/client/meta"); state.meta = meta; } catch (e) { return showError(e.message); }
+  if (!meta.regions.length) return showError("Hududlar topilmadi.");
+  html(`
+    ${topbar("Hududni tanlang", "driver")}
+    <div class="container">
+      <p class="muted">Mijozni qaysi hududdan oldingiz?</p>
+      <div class="role-list">
+        ${meta.regions.map(r => `
+          <div class="role-card" onclick="withLoading(this, () => driverStreetPickupConfirm(${r.id}))">
+            <div class="role-ic ic-dispatcher">📍</div>
+            <div><div class="role-name">${r.name}</div></div>
+            <span class="role-chev">›</span>
+          </div>`).join("")}
+      </div>
+    </div>
+  `);
+}
+async function driverStreetPickupConfirm(regionId) {
+  try { await post("/api/driver/street_pickup", { region_id: regionId }); navigate("driver"); }
+  catch (e) { showError(e.message); }
 }
 
 // ================= DISPATCHER =================
 async function renderDispatcher(sub) {
   if (!state.dispatcherPassword) return renderDispatcherLogin();
-  html(`${topbar("Dispetcher", "")}<div class="container center">Yuklanmoqda...</div>`);
+  html(`${topbar("Dispetcher", "")}<div class="container center">${loading()}</div>`);
   try { await get("/api/dispatcher/orders", { "X-Dispatcher-Password": state.dispatcherPassword }); }
   catch (e) { state.dispatcherPassword = null; return renderDispatcherLogin(e.message); }
 
@@ -533,7 +720,7 @@ async function renderDispatcher(sub) {
           <div class="muted">${o.client_name || "-"} · ${o.client_phone || "-"}</div>
           <div class="muted">${o.region} · ${money(o.price)} so'm</div>
           ${o.status === "new" ? `<div id="assign-${o.id}"></div>` : ""}
-          ${o.status !== "finished" && o.status !== "cancelled" ? `<button class="btn small danger" onclick="dispatcherCancel(${o.id})">Bekor qilish</button>` : ""}
+          ${o.status !== "finished" && o.status !== "cancelled" ? `<button class="btn small danger" onclick="withLoading(this, () => dispatcherCancel(${o.id}))">Bekor qilish</button>` : ""}
         </div>
       `).join("");
       for (const o of orders) {
@@ -545,7 +732,7 @@ async function renderDispatcher(sub) {
           if (!drivers.length) { assignBox.innerHTML = `<div class="muted">Mos bo'sh haydovchi yo'q</div>`; continue; }
           assignBox.innerHTML = `
             <select id="sel-${o.id}">${drivers.map(d => `<option value="${d.id}">${d.name} (⭐${d.rating})</option>`).join("")}</select>
-            <button class="btn small" onclick="dispatcherAssign(${o.id})">Tayinlash</button>`;
+            <button class="btn small" onclick="withLoading(this, () => dispatcherAssign(${o.id}))">Tayinlash</button>`;
         } catch (e) { /* skip */ }
       }
     }
@@ -572,7 +759,7 @@ function renderDispatcherLogin(err) {
       <label>Dispetcher parolini kiriting</label>
       <input id="d-pass" type="password">
       ${err ? `<div class="error">${err}</div>` : ""}
-      <button class="btn" onclick="dispatcherLogin()">Kirish</button>
+      <button class="btn" onclick="withLoading(this, dispatcherLogin)">Kirish</button>
     </div>
   `);
 }
@@ -608,8 +795,7 @@ async function renderDispatcherAddOrder() {
       <label>Taxminiy km</label><input id="a-km" type="number" value="4" min="0" step="0.5">
       <label>To'lov</label>
       <select id="a-pay"><option value="naqd">Naqd</option><option value="karta">Karta</option></select>
-      <div id="err-box"></div>
-      <button class="btn" onclick="dispatcherSubmitOrder()">Yaratish</button>
+      <button class="btn" onclick="withLoading(this, dispatcherSubmitOrder)">Yaratish</button>
     </div>
   `);
 }
@@ -641,7 +827,7 @@ async function renderAdmin(sub) {
   html(`
     ${topbar("Admin", "")}
     <div class="container">
-      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
+      <div class="tab-row">
         ${tabs.map(([k,l]) => `<span class="btn small ${active===k?'':'secondary'}" onclick="navigate('admin/${k}')">${l}</span>`).join("")}
       </div>
       <div id="admin-tab"></div>
@@ -673,7 +859,7 @@ function renderAdminLogin(err) {
       <label>Admin parolini kiriting</label>
       <input id="ad-pass" type="password">
       ${err ? `<div class="error">${err}</div>` : ""}
-      <button class="btn" onclick="adminLogin()">Kirish</button>
+      <button class="btn" onclick="withLoading(this, adminLogin)">Kirish</button>
     </div>
   `);
 }
@@ -696,7 +882,7 @@ async function renderAdminRegions(box, H) {
       <label>Nomi</label><input id="r-name">
       <label>Minimalka (so'm)</label><input id="r-min" type="number" value="15000">
       <label>Kutish narxi (so'm/daqiqa)</label><input id="r-wait" type="number" value="1000">
-      <button class="btn" onclick="adminAddRegion()">Qo'shish</button>
+      <button class="btn" onclick="withLoading(this, adminAddRegion)">Qo'shish</button>
     </div>
   `;
 }
@@ -722,7 +908,7 @@ async function renderAdminTariffs(box, H) {
     <div class="list-item">
       <div class="row"><b>${t.name}</b><span>${money(t.km_price)} so'm/km</span></div>
       <input id="t-${t.id}" type="number" value="${t.km_price}" style="margin-top:6px;">
-      <button class="btn small" onclick="adminSaveTariff('${t.id}')">Saqlash</button>
+      <button class="btn small" onclick="withLoading(this, () => adminSaveTariff('${t.id}'))">Saqlash</button>
     </div>
   `).join("");
 }
@@ -754,7 +940,7 @@ async function renderAdminDrivers(box, H) {
       <label>Telefon</label><input id="nd-phone">
       <label>Mashina turi</label>
       <select id="nd-tariff">${meta.tariffs.map(t => `<option value="${t.id}">${t.name}</option>`).join("")}</select>
-      <button class="btn" onclick="adminAddDriver()">Qo'shish</button>
+      <button class="btn" onclick="withLoading(this, adminAddDriver)">Qo'shish</button>
     </div>
   `;
 }
@@ -784,14 +970,14 @@ async function renderAdminSubs(box, H) {
     <div class="card">
       <label>Haftalik narx (so'm)</label><input id="sp-week" type="number" value="${p.week}">
       <label>Oylik narx (so'm)</label><input id="sp-month" type="number" value="${p.month}">
-      <button class="btn" onclick="adminSaveSubs()">Saqlash</button>
+      <button class="btn" onclick="withLoading(this, adminSaveSubs)">Saqlash</button>
     </div>
   `;
 }
 async function adminSaveSubs() {
   try {
     await put("/api/admin/subscription_prices", { week: +document.getElementById("sp-week").value, month: +document.getElementById("sp-month").value }, { "X-Admin-Password": state.adminPassword });
-    if (tg && tg.showAlert) tg.showAlert("Saqlandi."); else alert("Saqlandi.");
+    showSuccess("Saqlandi.");
   } catch (e) { showError(e.message); }
 }
 
@@ -800,7 +986,7 @@ function renderAdminPasswords(box) {
     <div class="card">
       <label>Yangi admin paroli</label><input id="pw-admin" type="password" placeholder="bo'sh qoldirsangiz o'zgarmaydi">
       <label>Yangi dispetcher paroli</label><input id="pw-disp" type="password" placeholder="bo'sh qoldirsangiz o'zgarmaydi">
-      <button class="btn" onclick="adminSavePasswords()">Saqlash</button>
+      <button class="btn" onclick="withLoading(this, adminSavePasswords)">Saqlash</button>
     </div>
   `;
 }
@@ -810,7 +996,7 @@ async function adminSavePasswords() {
   try {
     await put("/api/admin/passwords", { admin_password, dispatcher_password }, { "X-Admin-Password": state.adminPassword });
     if (admin_password) state.adminPassword = admin_password;
-    if (tg && tg.showAlert) tg.showAlert("Saqlandi."); else alert("Saqlandi.");
+    showSuccess("Saqlandi.");
     render();
   } catch (e) { showError(e.message); }
 }
@@ -820,7 +1006,7 @@ function renderAdminBroadcast(box) {
     <div class="card">
       <label>Barcha haydovchilarga xabar</label>
       <textarea id="bc-text" rows="4"></textarea>
-      <button class="btn" onclick="adminBroadcast()">Yuborish</button>
+      <button class="btn" onclick="withLoading(this, adminBroadcast)">Yuborish</button>
     </div>
   `;
 }
@@ -829,6 +1015,6 @@ async function adminBroadcast() {
   if (!text) return showError("Xabar matni bo'sh.");
   try {
     const r = await post("/api/admin/broadcast", { text }, { "X-Admin-Password": state.adminPassword });
-    if (tg && tg.showAlert) tg.showAlert(`${r.sent}/${r.total} haydovchiga yuborildi.`); else alert(`${r.sent}/${r.total} yuborildi.`);
+    showSuccess(`${r.sent}/${r.total} haydovchiga yuborildi.`);
   } catch (e) { showError(e.message); }
 }

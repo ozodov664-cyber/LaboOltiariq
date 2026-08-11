@@ -88,6 +88,7 @@ def order_public(order: dict) -> dict:
         "actual_km": order["actual_km"],
         "wait_price": order["wait_price"],
         "price": order["price"],
+        "quoted_price": order.get("quoted_price") or order["price"],
         "rating": order["rating"],
         "created_at": order["created_at"],
         "driver": (

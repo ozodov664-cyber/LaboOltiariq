@@ -211,8 +211,10 @@ async def street_pickup_region(call: CallbackQuery, state: FSMContext):
     db.set_driver_status(call.from_user.id, "busy")
     await call.message.edit_text("🛑 Yo'lda mijoz qabul qilindi.")
     await call.message.answer(
-        f"🚗 Safar boshlandi (yo'lda).\n0.0 km · {money(price)} so'm\n"
-        f"Taksometrni endi o'zingiz boshqarasiz — +1 km, kutish va yakunlash tugmalari orqali.",
+        f"🚗 Safar boshlandi (yo'lda).\nNarx: {money(price)} so'm (o'zgarmaydi)\n"
+        f"Kutish yoqilsa ham umumiy narx shu summadan oshmaydi. Kerak bo'lsa \"⏳ Kutish\" va "
+        f"\"🏁 Yakunlash\" tugmalaridan foydalaning. To'liq xarita va navigatsiya uchun ilovadan "
+        f"(mini app) foydalaning: /start → 🚗 Haydovchi.",
         reply_markup=kb.trip_controls_kb(order_id, "in_progress"),
     )
     await call.answer()
@@ -319,6 +321,9 @@ async def wait_off(call: CallbackQuery):
     seconds = int(time.time()) - order["wait_started_at"]
     added = pricing.wait_charge(seconds, region["wait_per_min"])
     new_total = order["price"] + added
+    # Mijozga boshida ko'rsatilgan narx (quoted_price) — bundan oshib ketmasligi kerak.
+    ceiling = order.get("quoted_price") or order["price"]
+    new_total = min(new_total, ceiling)
     db.stop_waiting(order_id, seconds, added, new_total)
     await call.message.edit_text(
         f"🚗 Safar davom etmoqda.\n{order['actual_km']} km · {money(new_total)} so'm\n"

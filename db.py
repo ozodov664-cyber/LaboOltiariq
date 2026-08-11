@@ -106,6 +106,7 @@ def init_db():
                 wait_price INTEGER NOT NULL DEFAULT 0,
                 wait_started_at INTEGER,
                 price INTEGER NOT NULL DEFAULT 0,
+                quoted_price INTEGER,  -- mijozga birinchi ko'rsatilgan narx — yakuniy narx bundan HECH QACHON oshmaydi
                 status TEXT NOT NULL DEFAULT 'new',  -- new|accepted|in_progress|waiting|finished|cancelled
                 rating INTEGER,
                 created_at INTEGER,
@@ -175,6 +176,10 @@ def _migrate(conn):
         "ALTER TABLE tariffs ADD COLUMN car TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE tariffs ADD COLUMN body TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE tariffs ADD COLUMN km_price INTEGER NOT NULL DEFAULT 0",
+        # Mijozga buyurtma berishda ko'rsatilgan BOSHLANG'ICH narx — bu ustun keyin HECH QACHON
+        # o'zgartirilmaydi va yakuniy narx uchun "shift" (tomdan oshmaslik chegarasi) vazifasini
+        # bajaradi: kutish yoki boshqa qo'shimchalar bilan ham umumiy narx shundan oshmaydi.
+        "ALTER TABLE orders ADD COLUMN quoted_price INTEGER",
     ]
     for stmt in alters:
         try:
@@ -426,11 +431,11 @@ def create_order(client_id, region_id, tariff_id, payment_method, pickup_text, p
     with get_conn() as conn:
         cur = conn.execute(
             "INSERT INTO orders (client_id, region_id, tariff_id, payment_method, pickup_text, pickup_lat, "
-            "pickup_lng, dest_text, dest_lat, dest_lng, est_km, price, status, created_at, order_type, "
-            "phone_client_name, phone_client_phone, created_by) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'new', ?, ?, ?, ?, ?)",
+            "pickup_lng, dest_text, dest_lat, dest_lng, est_km, price, quoted_price, status, created_at, "
+            "order_type, phone_client_name, phone_client_phone, created_by) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'new', ?, ?, ?, ?, ?)",
             (client_id, region_id, tariff_id, payment_method, pickup_text, pickup_lat, pickup_lng,
-             dest_text, dest_lat, dest_lng, est_km, price, int(time.time()), order_type,
+             dest_text, dest_lat, dest_lng, est_km, price, price, int(time.time()), order_type,
              phone_client_name, phone_client_phone, created_by),
         )
         return cur.lastrowid

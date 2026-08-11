@@ -71,6 +71,82 @@ async def real_road_km(lat1, lng1, lat2, lng2) -> float | None:
         return None
 
 
+_MANEUVER_UZ = {
+    ("turn", "left"): "chapga buriling",
+    ("turn", "right"): "o'ngga buriling",
+    ("turn", "slight left"): "sal chapga buriling",
+    ("turn", "slight right"): "sal o'ngga buriling",
+    ("turn", "sharp left"): "keskin chapga buriling",
+    ("turn", "sharp right"): "keskin o'ngga buriling",
+    ("turn", "straight"): "to'g'ri yuring",
+    ("turn", "uturn"): "orqaga qayting (U-burilish)",
+    ("continue", None): "to'g'ri yuring",
+    ("new name", None): "to'g'ri yuring",
+    ("fork", "left"): "chap tarmoqqa o'ting",
+    ("fork", "right"): "o'ng tarmoqqa o'ting",
+    ("merge", None): "asosiy yo'lga qo'shiling",
+    ("roundabout", None): "aylanma yo'lga kiring",
+    ("rotary", None): "aylanma yo'lga kiring",
+    ("depart", None): "harakatni boshlang",
+    ("arrive", None): "siz manzilga yetib keldingiz",
+}
+
+
+def _maneuver_text_uz(m_type: str, modifier: str | None) -> str:
+    key = (m_type, modifier)
+    if key in _MANEUVER_UZ:
+        return _MANEUVER_UZ[key]
+    key2 = (m_type, None)
+    if key2 in _MANEUVER_UZ:
+        return _MANEUVER_UZ[key2]
+    if modifier and "left" in modifier:
+        return "chapga buriling"
+    if modifier and "right" in modifier:
+        return "o'ngga buriling"
+    return "davom eting"
+
+
+async def route_navigation(lat1, lng1, lat2, lng2):
+    """Yandex Navigator'dagidek burilish-burilish (turn-by-turn) yo'nalish: OSRM'dan to'liq
+    marshrut chizig'i (geometry) va har bir manyovr (burilish) nuqtasini, shu nuqtagacha
+    bo'lgan masofani va o'zbekcha ovozli buyruq matnini qaytaradi. OSRM ishlamasa None."""
+    url = f"{OSRM_BASE_URL}/route/v1/driving/{lng1},{lat1};{lng2},{lat2}"
+    params = {"overview": "full", "geometries": "geojson", "steps": "true"}
+    try:
+        timeout = aiohttp.ClientTimeout(total=OSRM_TIMEOUT_SECONDS)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url, params=params) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+                if data.get("code") != "Ok" or not data.get("routes"):
+                    return None
+                route = data["routes"][0]
+                geometry = [[lat, lng] for lng, lat in route["geometry"]["coordinates"]]
+                steps = []
+                for leg in route.get("legs", []):
+                    for step in leg.get("steps", []):
+                        man = step.get("maneuver", {})
+                        loc = man.get("location")
+                        if not loc:
+                            continue
+                        steps.append({
+                            "lat": loc[1],
+                            "lng": loc[0],
+                            "distance_m": round(step.get("distance", 0)),
+                            "text_uz": _maneuver_text_uz(man.get("type", ""), man.get("modifier")),
+                            "street": step.get("name") or "",
+                        })
+                return {
+                    "geometry": geometry,
+                    "steps": steps,
+                    "total_km": round(route["distance"] / 1000, 2),
+                }
+    except Exception as e:
+        log.warning("OSRM navigatsiya so'rovi muvaffaqiyatsiz: %s", e)
+        return None
+
+
 async def route_km(lat1, lng1, lat2, lng2) -> float:
     """Narx hisoblash uchun ISHLATILADIGAN asosiy funksiya: avval haqiqiy yo'l masofasini
     (OSRM) so'raydi, u ishlamasa to'g'ri chiziq (haversine + tuzatish) formulasiga tushadi —
