@@ -201,7 +201,10 @@ async def region_chosen(call: CallbackQuery, state: FSMContext):
             f"Taxminiy masofa avtomatik aniqlanmadi (joylashuv yuborilmadi). Standart {km} km bo'yicha hisoblanadi.\n"
             f"Aniqroq narx uchun keyingi safar joylashuvni yuboring."
         )
-    await call.message.answer("Tarifni tanlang:", reply_markup=kb.tariffs_inline_kb(region_id, km))
+    # Hudud tugmalari turgan xabarning o'zini tahrirlaymiz (yangi xabar yubormaymiz) —
+    # shunda eski hudud ro'yxati ekranda qolib ketmaydi, mashina turlari o'sha joyning
+    # o'zida almashadi.
+    await call.message.edit_text("Tarifni tanlang:", reply_markup=kb.tariffs_inline_kb(region_id, km))
     await call.answer()
 
 

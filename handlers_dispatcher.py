@@ -298,14 +298,17 @@ async def add_order_region(call: CallbackQuery, state: FSMContext):
         # Pickup va destination ikkalasi ham joylashuv orqali berilgan — masofa allaqachon
         # avtomatik hisoblangan, km'ni qo'lda so'rashning hojati yo'q.
         await state.set_state(DispatcherAddOrder.tariff)
-        await call.message.answer(
+        # Hudud tugmalari turgan xabarning o'zini tahrirlaymiz — eski hudud ro'yxati
+        # ekranda mashina turlari bilan bir qatorda qolib ketmasligi uchun.
+        await call.message.edit_text(
             f"📏 Masofa avtomatik hisoblandi: ~{km:.1f} km\nTarifni tanlang:",
             reply_markup=kb.tariffs_inline_kb(region_id, km, prefix="dtariff"),
         )
         await call.answer()
         return
     await state.set_state(DispatcherAddOrder.km)
-    await call.message.answer("Taxminiy masofani km da kiriting (masalan: 5 yoki 5.5):")
+    # Bu yerda tugmalar shart emas — eski hudud tugmalarini olib tashlaymiz (reply_markup=None).
+    await call.message.edit_text("Taxminiy masofani km da kiriting (masalan: 5 yoki 5.5):", reply_markup=None)
     await call.answer()
 
 
