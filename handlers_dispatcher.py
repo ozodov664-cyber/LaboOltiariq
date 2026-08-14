@@ -37,7 +37,10 @@ async def dispatcher_login(message: Message, state: FSMContext, command: Command
         await try_password(message, command.args.strip())
     else:
         await state.set_state(DispatcherLogin.waiting_password)
-        await message.answer("Dispetcher parolini kiriting:")
+        await message.answer(
+            "📡 <b>Dispetcher kirish</b>\n━━━━━━━━━━━━━━━━━━\n🔑 Parolni kiriting:",
+            parse_mode="HTML",
+        )
 
 
 @router.message(DispatcherLogin.waiting_password)
@@ -48,14 +51,18 @@ async def dispatcher_password_input(message: Message, state: FSMContext):
 
 async def try_password(message: Message, password: str):
     if password != db.get_setting("dispatcher_password"):
-        await message.answer("Parol noto'g'ri.")
+        await message.answer("❌ Parol noto'g'ri.")
         return
     _dispatchers.add(message.from_user.id)
     db.add_admin_id(message.from_user.id, "dispatcher")  # SOS xabarlarini olishi uchun doimiy saqlanadi
     # users jadvalida ham qatori bo'lishi kerak — aks holda "Zakaz qo'shish" orqali yaratilgan
     # buyurtmalarning client_id FOREIGN KEY'i (dispetcherning o'z ID'siga) xatolik beradi
     db.upsert_user(message.from_user.id, role="dispatcher")
-    await message.answer("Dispetcher panelga xush kelibsiz.", reply_markup=kb.dispatcher_menu_kb())
+    await message.answer(
+        "✅ <b>Dispetcher panelga xush kelibsiz!</b>\n━━━━━━━━━━━━━━━━━━\nQuyidagi menyudan foydalaning 👇",
+        reply_markup=kb.dispatcher_menu_kb(),
+        parse_mode="HTML",
+    )
 
 
 @router.message(F.text == "📋 Faol buyurtmalar")
@@ -151,6 +158,9 @@ async def reassign(call: CallbackQuery, bot):
             pass
     await call.message.edit_text(call.message.text + f"\n\n✅ Haydovchi tayinlandi.")
     await call.answer()
+    # Buyurtma "new" holatidan tayinlangan bo'lsa, unga yuborilgan boshqa haydovchilarning
+    # xabarlarini ham "band bo'ldi" deb avtomatik tahrirlaymiz.
+    await dispatch.mark_order_taken_for_others(bot, order_id, driver_id)
     driver = db.get_driver(driver_id)
     try:
         await bot.send_message(
@@ -201,7 +211,9 @@ async def add_order_phone(message: Message, state: FSMContext):
         await state.update_data(name=existing["name"])
         await state.set_state(DispatcherAddOrder.pickup)
         await message.answer(
-            f"👤 Bazada topildi: {existing['name']}\n\nQayerdan olib ketish kerak? Manzilni yozing:"
+            f"👤 Bazada topildi: {existing['name']}\n\n"
+            f"Qayerdan olib ketish kerak? Joylashuvni yuboring yoki manzilni yozing:",
+            reply_markup=kb.location_kb(),
         )
         return
     await state.set_state(DispatcherAddOrder.name)
@@ -212,28 +224,86 @@ async def add_order_phone(message: Message, state: FSMContext):
 async def add_order_name(message: Message, state: FSMContext):
     await state.update_data(name=message.text.strip())
     await state.set_state(DispatcherAddOrder.pickup)
-    await message.answer("Qayerdan olib ketish kerak? Manzilni yozing:")
+    await message.answer(
+        "Qayerdan olib ketish kerak? Joylashuvni yuboring yoki manzilni yozing:",
+        reply_markup=kb.location_kb(),
+    )
 
 
-@router.message(DispatcherAddOrder.pickup)
-async def add_order_pickup(message: Message, state: FSMContext):
-    await state.update_data(pickup_text=message.text.strip())
+@router.message(DispatcherAddOrder.pickup, F.location)
+async def add_order_pickup_location(message: Message, state: FSMContext):
+    await state.update_data(
+        pickup_text="Joylashuv orqali yuborildi",
+        pickup_lat=message.location.latitude,
+        pickup_lng=message.location.longitude,
+    )
     await state.set_state(DispatcherAddOrder.destination)
-    await message.answer("Qayerga borish kerak? Manzilni yozing (noma'lum bo'lsa \"-\" yuboring):")
+    await message.answer(
+        "Qayerga borish kerak? Manzil joylashuvini yuboring yoki matn bilan yozing "
+        "(noma'lum bo'lsa \"-\" yuboring yoki quyidagi tugmani bosing):",
+        reply_markup=kb.location_kb(skip_text="➖ Manzil noma'lum"),
+    )
 
 
-@router.message(DispatcherAddOrder.destination)
+@router.message(DispatcherAddOrder.pickup, F.text)
+async def add_order_pickup(message: Message, state: FSMContext):
+    await state.update_data(pickup_text=message.text.strip(), pickup_lat=None, pickup_lng=None)
+    await state.set_state(DispatcherAddOrder.destination)
+    await message.answer(
+        "Qayerga borish kerak? Manzil joylashuvini yuboring yoki matn bilan yozing "
+        "(noma'lum bo'lsa \"-\" yuboring yoki quyidagi tugmani bosing):",
+        reply_markup=kb.location_kb(skip_text="➖ Manzil noma'lum"),
+    )
+
+
+@router.message(DispatcherAddOrder.destination, F.location)
+async def add_order_destination_location(message: Message, state: FSMContext):
+    data = await state.get_data()
+    dest_lat, dest_lng = message.location.latitude, message.location.longitude
+    km = None
+    if data.get("pickup_lat") is not None:
+        # Ikkala nuqta ham GPS orqali ma'lum — haqiqiy yo'l masofasini avtomatik hisoblaymiz,
+        # dispetcherdan endi km qo'lda so'ralmaydi.
+        km = await pricing.route_km(data["pickup_lat"], data["pickup_lng"], dest_lat, dest_lng)
+    await state.update_data(dest_text="Joylashuv orqali yuborildi", dest_lat=dest_lat, dest_lng=dest_lng, km=km)
+    await state.set_state(DispatcherAddOrder.region)
+    await message.answer("Hududni tanlang:", reply_markup=kb.remove_kb())
+    await message.answer("👇", reply_markup=kb.regions_inline_kb(prefix="dregion"))
+
+
+@router.message(DispatcherAddOrder.destination, F.text == "➖ Manzil noma'lum")
+async def add_order_destination_skip(message: Message, state: FSMContext):
+    await state.update_data(dest_text=None, dest_lat=None, dest_lng=None)
+    await state.set_state(DispatcherAddOrder.region)
+    await message.answer("Hududni tanlang:", reply_markup=kb.remove_kb())
+    await message.answer("👇", reply_markup=kb.regions_inline_kb(prefix="dregion"))
+
+
+@router.message(DispatcherAddOrder.destination, F.text)
 async def add_order_destination(message: Message, state: FSMContext):
     text = message.text.strip()
-    await state.update_data(dest_text=None if text == "-" else text)
+    await state.update_data(dest_text=None if text == "-" else text, dest_lat=None, dest_lng=None)
     await state.set_state(DispatcherAddOrder.region)
-    await message.answer("Hududni tanlang:", reply_markup=kb.regions_inline_kb(prefix="dregion"))
+    await message.answer("Hududni tanlang:", reply_markup=kb.remove_kb())
+    await message.answer("👇", reply_markup=kb.regions_inline_kb(prefix="dregion"))
 
 
 @router.callback_query(DispatcherAddOrder.region, F.data.startswith("dregion:"))
 async def add_order_region(call: CallbackQuery, state: FSMContext):
     region_id = int(call.data.split(":")[1])
     await state.update_data(region_id=region_id)
+    data = await state.get_data()
+    km = data.get("km")
+    if km is not None:
+        # Pickup va destination ikkalasi ham joylashuv orqali berilgan — masofa allaqachon
+        # avtomatik hisoblangan, km'ni qo'lda so'rashning hojati yo'q.
+        await state.set_state(DispatcherAddOrder.tariff)
+        await call.message.answer(
+            f"📏 Masofa avtomatik hisoblandi: ~{km:.1f} km\nTarifni tanlang:",
+            reply_markup=kb.tariffs_inline_kb(region_id, km, prefix="dtariff"),
+        )
+        await call.answer()
+        return
     await state.set_state(DispatcherAddOrder.km)
     await call.message.answer("Taxminiy masofani km da kiriting (masalan: 5 yoki 5.5):")
     await call.answer()
@@ -281,11 +351,11 @@ async def add_order_payment(call: CallbackQuery, state: FSMContext, bot):
         tariff_id=data["tariff_id"],
         payment_method=payment,
         pickup_text=data["pickup_text"],
-        pickup_lat=None,
-        pickup_lng=None,
+        pickup_lat=data.get("pickup_lat"),
+        pickup_lng=data.get("pickup_lng"),
         dest_text=data.get("dest_text"),
-        dest_lat=None,
-        dest_lng=None,
+        dest_lat=data.get("dest_lat"),
+        dest_lng=data.get("dest_lng"),
         est_km=km,
         price=price,
         order_type="phone",
@@ -300,6 +370,7 @@ async def add_order_payment(call: CallbackQuery, state: FSMContext, bot):
     )
     await call.answer()
     # Dispetcher o'zi qo'lda kiritgani uchun qo'shimcha tasdiqlash shart emas — darhol yuboriladi.
-    # Eslatma: manzil matn bilan kiritilgani uchun GPS yo'q, shuning uchun barcha mos haydovchilarga
-    # birdaniga (masofa bo'yicha saralanmasdan, ovozsiz) boradi.
+    # Eslatma: agar pickup joylashuv sifatida yuborilgan bo'lsa, masofaga qarab bosqichma-bosqich
+    # va ovozli signal bilan ketadi (xuddi mijoz ilovadan buyurtma bergandagidek); aks holda
+    # (faqat matn bilan manzil kiritilgan bo'lsa) barcha mos haydovchilarga birdaniga, ovozsiz boradi.
     asyncio.create_task(dispatch.dispatch_order(bot, order_id))

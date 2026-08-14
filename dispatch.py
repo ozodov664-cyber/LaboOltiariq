@@ -77,9 +77,15 @@ async def _notify_batch(bot, drivers, order_id, region, tariff, order, distances
         distance_km = distances.get(d["id"])
         text = _order_broadcast_text(order, region, tariff, distance_km)
         try:
-            await bot.send_message(d["id"], text, reply_markup=kb.accept_order_kb(order_id), parse_mode="HTML")
+            msg = await bot.send_message(d["id"], text, reply_markup=kb.accept_order_kb(order_id), parse_mode="HTML")
         except Exception:
             continue  # haydovchi botni bloklagan bo'lishi mumkin — e'tiborsiz qoldiramiz
+        # Xabar ID va matnini saqlab qo'yamiz — kimdir buyurtmani qabul qilganda, qolgan
+        # haydovchilarning shu xabarlarini "band bo'ldi" deb avtomatik tahrirlash uchun kerak.
+        try:
+            db.save_order_broadcast(order_id, d["id"], msg.message_id, text)
+        except Exception:
+            pass
         await _send_alert_sound(bot, d["id"], distance_km)
 
 
@@ -147,6 +153,57 @@ async def dispatch_order(bot, order_id):
     if rest_ids:
         fresh = db.list_available_drivers(order["tariff_id"])
         await _notify_batch(bot, [d for d in fresh if d["id"] in rest_ids], order_id, region, tariff, order, distances)
+
+
+async def mark_order_taken_for_others(bot, order_id, accepted_driver_id):
+    """Buyurtmani bitta haydovchi qabul qilgach, shu buyurtma yuborilgan BOSHQA barcha
+    haydovchilarning xabarlarini avtomatik "🚕 Band bo'ldi" deb tahrirlaydi va tugmani
+    olib tashlaydi — ular endi eskirgan zayavkaga bossa ham ma'nosiz urinish qilmaydi."""
+    broadcasts = db.get_order_broadcasts(order_id)
+    for b in broadcasts:
+        if b["driver_id"] == accepted_driver_id:
+            continue
+        try:
+            await bot.edit_message_text(
+                chat_id=b["driver_id"],
+                message_id=b["message_id"],
+                text=b["text"] + "\n\n🚕 <b>Band bo'ldi</b> — boshqa haydovchi qabul qildi.",
+                parse_mode="HTML",
+            )
+        except Exception:
+            continue  # xabar allaqachon o'zgargan/o'chirilgan yoki haydovchi botni bloklagan bo'lishi mumkin
+    db.clear_order_broadcasts(order_id)
+
+
+EXPIRE_SWEEP_INTERVAL_SECONDS = 60  # har 1 daqiqada eskirgan buyurtmalarni tekshirib turadi
+
+
+async def expire_orders_loop(bot):
+    """Fon rejimida doimiy ishlaydigan vazifa: uzoq vaqt (db.ORDER_TTL_SECONDS) hech qanday
+    haydovchi qabul qilmagan buyurtmalarni avtomatik 'muddati tugagan' deb belgilaydi va
+    mijozga (agar botda bo'lsa — telefon orqali kiritilgan buyurtmalarda mijoz botda emas,
+    shu sababli ularga xabar yuborilmaydi) darhol xabar beradi, qayta urinib ko'rishni taklif
+    qiladi. Shu tufayli buyurtma abadiy "osilib" qolmaydi va haydovchilar eski, allaqachon
+    keraksiz zayavkani ko'rib chalg'imaydi."""
+    while True:
+        await asyncio.sleep(EXPIRE_SWEEP_INTERVAL_SECONDS)
+        try:
+            expired = db.expire_stale_orders()
+        except Exception:
+            continue
+        for o in expired:
+            if o.get("phone_client_name"):
+                continue  # dispetcher qo'lda kiritgan buyurtma — mijoz bot ichida emas
+            try:
+                await bot.send_message(
+                    o["client_id"],
+                    "⏰ <b>Buyurtmangiz muddati tugadi</b>\n"
+                    "Afsuski, uzoq vaqt hech qanday haydovchi javob bermadi. Iltimos, qayta "
+                    "urinib ko'ring — hozir ko'proq haydovchi onlayn bo'lishi mumkin.",
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
 
 
 async def notify_dispatchers_new_order(bot, order_id):

@@ -34,7 +34,10 @@ async def admin_login(message: Message, state: FSMContext, command: CommandObjec
         await try_password(message, command.args.strip())
     else:
         await state.set_state(AdminLogin.waiting_password)
-        await message.answer("Admin parolini kiriting:")
+        await message.answer(
+            "🛡 <b>Admin kirish</b>\n━━━━━━━━━━━━━━━━━━\n🔑 Parolni kiriting:",
+            parse_mode="HTML",
+        )
 
 
 @router.message(AdminLogin.waiting_password)
@@ -45,11 +48,15 @@ async def admin_password_input(message: Message, state: FSMContext):
 
 async def try_password(message: Message, password: str):
     if password != db.get_setting("admin_password"):
-        await message.answer("Parol noto'g'ri.")
+        await message.answer("❌ Parol noto'g'ri.")
         return
     _admins.add(message.from_user.id)
     db.add_admin_id(message.from_user.id, "admin")  # SOS/xabar yuborish uchun doimiy saqlanadi
-    await message.answer("Admin panelga xush kelibsiz.", reply_markup=kb.admin_menu_kb())
+    await message.answer(
+        "✅ <b>Admin panelga xush kelibsiz!</b>\n━━━━━━━━━━━━━━━━━━\nQuyidagi menyudan foydalaning 👇",
+        reply_markup=kb.admin_menu_kb(),
+        parse_mode="HTML",
+    )
 
 
 @router.message(F.text == "📊 Statistika")

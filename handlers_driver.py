@@ -1,4 +1,5 @@
 import time
+import html
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
@@ -6,6 +7,7 @@ from aiogram.filters import Command, CommandObject
 
 import db
 import pricing
+import dispatch
 import keyboards as kb
 from states import DriverLogin, DriverStreetPickup
 
@@ -14,6 +16,10 @@ router = Router(name="driver")
 
 def money(n):
     return f"{round(n):,}".replace(",", " ")
+
+
+def esc(s):
+    return html.escape(str(s)) if s is not None else ""
 
 
 def sub_warning_text(driver):
@@ -35,17 +41,20 @@ async def driver_login_cmd(message: Message, state: FSMContext, command: Command
         return
     if not driver:
         await message.answer(
-            "Siz haydovchi sifatida ro'yxatdan o'tmagansiz. Admin sizni qo'shishi va parol berishi kerak."
+            "🚫 Siz haydovchi sifatida ro'yxatdan o'tmagansiz.\nAdmin sizni qo'shishi va parol berishi kerak."
         )
         return
     if driver["blocked"]:
-        await message.answer("Hisobingiz bloklangan. Admin bilan bog'laning.")
+        await message.answer("🔒 Hisobingiz bloklangan. Admin bilan bog'laning.")
         return
     if command.args:
         await try_password(message, state, command.args.strip())
     else:
         await state.set_state(DriverLogin.waiting_password)
-        await message.answer("Shaxsiy parolingizni kiriting:")
+        await message.answer(
+            "🚗 <b>Haydovchi kirish</b>\n━━━━━━━━━━━━━━━━━━\n🔑 Shaxsiy parolingizni kiriting:",
+            parse_mode="HTML",
+        )
 
 
 @router.message(DriverLogin.waiting_password)
@@ -56,7 +65,7 @@ async def driver_password_input(message: Message, state: FSMContext):
 async def try_password(message: Message, state: FSMContext, password: str):
     driver = db.get_driver(message.from_user.id)
     if not driver or driver["blocked"] or driver["pass"] != password:
-        await message.answer("Parol noto'g'ri yoki hisobingiz bloklangan.")
+        await message.answer("❌ Parol noto'g'ri yoki hisobingiz bloklangan.")
         return
     await state.clear()
     await state_login_ok(message, driver)
@@ -65,9 +74,16 @@ async def try_password(message: Message, state: FSMContext, password: str):
 async def state_login_ok(message: Message, driver):
     tariff = db.get_tariff(driver["tariff"])
     tariff_label = tariff["name"] if tariff else driver["tariff"]
+    online = driver["status"] == "available"
+    status_line = "🟢 Onlayn" if online else "⚪️ Oflayn"
     await message.answer(
-        f"Xush kelibsiz, {driver['name']}! 🚗\nMashina: {tariff_label} · ⭐ {driver['rating']:.1f}",
-        reply_markup=kb.driver_menu_kb(online=driver["status"] == "available"),
+        f"🚗 <b>Xush kelibsiz, {esc(driver['name'])}!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🚘 Mashina: <b>{esc(tariff_label)}</b>\n"
+        f"⭐ Reyting: <b>{driver['rating']:.1f}</b>\n"
+        f"{status_line}",
+        reply_markup=kb.driver_menu_kb(online=online),
+        parse_mode="HTML",
     )
 
 
@@ -237,13 +253,32 @@ async def accept_order(call: CallbackQuery, bot):
         return
     ok = db.accept_order(order_id, call.from_user.id)
     if not ok:
-        await call.message.edit_text(call.message.text + "\n\n❌ Bu buyurtma allaqachon boshqa haydovchiga tegishli.")
-        await call.answer("Kech qoldingiz", show_alert=True)
+        reason = db.order_fail_reason(order_id)
+        if reason == "expired":
+            note = "⏰ Bu buyurtmaning muddati tugagan — uzoq vaqt hech kim javob bermagani uchun avtomatik bekor bo'lgan."
+            alert = "Buyurtma muddati tugagan"
+        elif reason == "cancelled":
+            note = "🚫 Bu buyurtma mijoz (yoki dispetcher) tomonidan bekor qilingan."
+            alert = "Buyurtma bekor qilingan"
+        elif reason == "not_found":
+            note = "❌ Bu buyurtma topilmadi."
+            alert = "Buyurtma topilmadi"
+        else:
+            note = "❌ Bu buyurtma oldin boshqa haydovchi tomonidan qabul qilingan."
+            alert = "Oldin qabul qilingan"
+        try:
+            await call.message.edit_text(call.message.text + f"\n\n{note}")
+        except Exception:
+            pass  # xabar allaqachon o'zgartirilgan bo'lishi mumkin (masalan tezkor qayta bosish) — muhim emas
+        await call.answer(alert, show_alert=True)
         return
     db.set_driver_status(call.from_user.id, "busy")
     order = db.get_order(order_id)
     is_phone_order = bool(order.get("phone_client_name"))
     await call.message.edit_text(call.message.text + "\n\n✅ Siz qabul qildingiz.")
+    # Shu buyurtma yuborilgan boshqa haydovchilarning xabarlarini avtomatik "band bo'ldi"
+    # deb tahrirlaymiz — ular endi eskirgan zayavkani ko'rib chalg'imaydi.
+    await dispatch.mark_order_taken_for_others(bot, order_id, call.from_user.id)
     if is_phone_order:
         client_line = f"👤 Mijoz: {order['phone_client_name']}\n📞 {order.get('phone_client_phone') or '-'}\n"
     else:

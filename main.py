@@ -7,11 +7,11 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 
 import db
+import dispatch
 import handlers_client
 import handlers_driver
 import handlers_dispatcher
 import handlers_admin
-import web
 
 logging.basicConfig(level=logging.INFO)
 
@@ -37,15 +37,11 @@ async def main():
 
     await bot.delete_webhook(drop_pending_updates=True)
 
-    # Mini app (webapp/) va /api/* endpoint'larini xizmat qiluvchi HTTP server — bot bilan
-    # bir xil jarayonda, bir xil bazadan foydalanib, parallel ishlaydi.
-    runner = await web.run_web_app(bot)
-    logging.info("Mini app HTTP server ishga tushdi (port %s)", os.environ.get("PORT", "8080"))
+    # Fon rejimidagi vazifa: uzoq vaqt hech kim qabul qilmagan buyurtmalarni avtomatik
+    # "muddati tugagan" deb belgilaydi va mijozga xabar beradi (dispatch.py'ga qarang).
+    asyncio.create_task(dispatch.expire_orders_loop(bot))
 
-    try:
-        await dp.start_polling(bot)
-    finally:
-        await runner.cleanup()
+    await dp.start_polling(bot)
 
 
 if __name__ == "__main__":

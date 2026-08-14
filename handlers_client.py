@@ -1,4 +1,5 @@
 import asyncio
+import html
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
@@ -17,20 +18,32 @@ def money(n):
     return f"{round(n):,}".replace(",", " ")
 
 
+def esc(s):
+    return html.escape(str(s)) if s is not None else ""
+
+
 # ---------------- registration ----------------
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     user = db.get_user(message.from_user.id)
     if user and user["name"] and user["phone"]:
         await message.answer(
-            f"Xush kelibsiz, {user['name'].split()[0]}! 🚕\nTaksi chaqirish uchun tugmani bosing.",
+            f"👋 <b>Xush kelibsiz, {esc(user['name'].split()[0])}!</b>\n\n"
+            f"🚕 <b>LaboOltiariq</b> taksi xizmatiga qaytganingizdan xursandmiz.\n"
+            f"Quyidagi menyudan kerakli bo'limni tanlang 👇",
             reply_markup=kb.client_menu_kb(),
+            parse_mode="HTML",
         )
         return
     await state.set_state(Registration.waiting_name)
     await message.answer(
-        "Assalomu alaykum! LaboOltiariq botiga xush kelibsiz 👋\n\nRo'yxatdan o'tish uchun ismingizni yuboring:",
+        "✨ <b>LaboOltiariq</b> botiga xush kelibsiz!\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "🚕 Ishonchli va tezkor taksi xizmati\n\n"
+        "📝 <b>Ro'yxatdan o'tish — 1/2</b>\n"
+        "Ismingizni yuboring:",
         reply_markup=kb.remove_kb(),
+        parse_mode="HTML",
     )
 
 
@@ -38,7 +51,13 @@ async def cmd_start(message: Message, state: FSMContext):
 async def reg_name(message: Message, state: FSMContext):
     await state.update_data(name=message.text.strip())
     await state.set_state(Registration.waiting_phone)
-    await message.answer("Rahmat! Endi telefon raqamingizni yuboring:", reply_markup=kb.contact_kb())
+    await message.answer(
+        f"✅ Rahmat, <b>{esc(message.text.strip())}</b>!\n\n"
+        f"📝 <b>Ro'yxatdan o'tish — 2/2</b>\n"
+        f"Endi telefon raqamingizni yuboring (tugma orqali tezroq bo'ladi):",
+        reply_markup=kb.contact_kb(),
+        parse_mode="HTML",
+    )
 
 
 @router.message(Registration.waiting_phone, F.contact)
@@ -47,8 +66,11 @@ async def reg_phone_contact(message: Message, state: FSMContext):
     db.upsert_user(message.from_user.id, name=data["name"], phone=message.contact.phone_number, role="client")
     await state.clear()
     await message.answer(
-        f"Ro'yxatdan o'tish yakunlandi ✅\nEndi taksi chaqirishingiz mumkin.",
+        "🎉 <b>Ro'yxatdan o'tish muvaffaqiyatli yakunlandi!</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "Endi taksi chaqirishingiz mumkin — quyidagi menyudan foydalaning 👇",
         reply_markup=kb.client_menu_kb(),
+        parse_mode="HTML",
     )
 
 
@@ -56,12 +78,18 @@ async def reg_phone_contact(message: Message, state: FSMContext):
 async def reg_phone_text(message: Message, state: FSMContext):
     phone = message.text.strip()
     if not phone.startswith("+") or len(phone) < 9:
-        await message.answer("Iltimos, to'g'ri formatda yuboring: +998901234567, yoki tugma orqali yuboring.")
+        await message.answer("⚠️ Iltimos, to'g'ri formatda yuboring: +998901234567, yoki tugma orqali yuboring.")
         return
     data = await state.get_data()
     db.upsert_user(message.from_user.id, name=data["name"], phone=phone, role="client")
     await state.clear()
-    await message.answer("Ro'yxatdan o'tish yakunlandi ✅\nEndi taksi chaqirishingiz mumkin.", reply_markup=kb.client_menu_kb())
+    await message.answer(
+        "🎉 <b>Ro'yxatdan o'tish muvaffaqiyatli yakunlandi!</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "Endi taksi chaqirishingiz mumkin — quyidagi menyudan foydalaning 👇",
+        reply_markup=kb.client_menu_kb(),
+        parse_mode="HTML",
+    )
 
 
 @router.message(F.text == "👤 Profil")
@@ -69,7 +97,13 @@ async def show_profile(message: Message):
     user = db.get_user(message.from_user.id)
     if not user:
         return
-    await message.answer(f"👤 {user['name']}\n📞 {user['phone']}")
+    await message.answer(
+        f"👤 <b>Profilingiz</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🙍 Ism: <b>{esc(user['name'])}</b>\n"
+        f"📞 Telefon: <b>{esc(user['phone'])}</b>",
+        parse_mode="HTML",
+    )
 
 
 # ---------------- ordering ----------------
@@ -81,12 +115,15 @@ async def start_order(message: Message, state: FSMContext):
         return
     active = db.get_active_order_for_client(message.from_user.id)
     if active:
-        await message.answer("Sizda allaqachon faol buyurtma bor. Holatni ko'rish uchun /status yuboring.")
+        await message.answer("⚠️ Sizda allaqachon faol buyurtma bor. Holatni ko'rish uchun /status yuboring.")
         return
     await state.set_state(OrderFlow.waiting_pickup)
     await message.answer(
-        "Qayerdasiz? Joylashuvingizni yuboring (aniq narx uchun eng ishonchli usul) yoki manzilni yozing:",
+        "🚕 <b>Yangi buyurtma</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "📍 Qayerdasiz? Joylashuvingizni yuboring (aniq narx uchun eng ishonchli usul) yoki manzilni yozing:",
         reply_markup=kb.location_kb(),
+        parse_mode="HTML",
     )
 
 
@@ -298,7 +335,13 @@ async def order_history(message: Message):
         "new": "⏳ Qidirilgan", "accepted": "⏳ Qabul qilingan",
         "in_progress": "⏳ Yo'lda edi", "waiting": "⏳ Kutilgan",
     }
-    lines = [f"#{o['id']} · {labels.get(o['status'], o['status'])} · {money(o['price'])} so'm" for o in orders]
+
+    def _label(o):
+        if o["status"] == "cancelled" and o.get("cancel_reason") == "expired":
+            return "⏰ Muddati tugagan"
+        return labels.get(o["status"], o["status"])
+
+    lines = [f"#{o['id']} · {_label(o)} · {money(o['price'])} so'm" for o in orders]
     await message.answer("📜 Oxirgi buyurtmalaringiz:\n" + "\n".join(lines))
 
 

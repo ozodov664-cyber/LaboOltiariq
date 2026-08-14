@@ -1,55 +1,25 @@
-# LaboOltiariq — Telegram taksi boti + Mini App (backend)
+# LaboOltiariq — Telegram taksi boti (to'liq menyu asosida)
 
-## 🆕 Mini App qo'shildi
+## 🆕 Mini App (Web App) olib tashlandi
 
-Endi botning barcha rollari (mijoz, haydovchi, dispetcher, admin) uchun to'liq **Telegram
-Mini App** (Web App) bor — `webapp/` papkasida. Backend o'zgarmadi (aiogram + SQLite), ustiga
-`aiohttp` веб-server qo'shildi, u ham `/api/*` JSON API'ni, ham mini app statik fayllarini
-xizmat qiladi — bularning barchasi **bitta jarayonda**, bot polling bilan bir vaqtda ishlaydi.
+Bot endi **to'liq oddiy Telegram bot menyulari** orqali ishlaydi — alohida Web App/Mini App
+yo'q. Barcha rollar (mijoz, haydovchi, dispetcher, admin) ro'yxatdan o'tish, buyurtma berish
+va boshqarishni **bot ichidagi tugmalar (reply/inline keyboard)** orqali amalga oshiradi,
+xuddi mini app qo'shilishidan oldingi kabi.
 
-**MUHIM — deploy turi o'zgardi:** avval `Procfile`da `worker:` edi (chunki bot faqat polling
-qilardi, port ochmasdi). Endi mini app uchun HTTP port kerak, shuning uchun `Procfile`
-`web:` ga o'zgartirildi. Railway avtomatik `PORT` muhit o'zgaruvchisini beradi — kodda
-allaqachon shu o'zgaruvchidan foydalaniladi (`web.py`).
+O'chirilgan fayllar: `web.py`, `webauth.py`, `webcommon.py`, `api_client.py`, `api_driver.py`,
+`api_dispatcher.py`, `api_admin.py`, va butun `webapp/` papkasi (frontend: `index.html`,
+`app.js`, `style.css`). Bot endi hech qanday HTTP port ochmaydi — faqat Telegram bilan
+polling orqali gaplashadi, shuning uchun `Procfile` yana `worker:` turiga qaytarildi (avval
+mini app uchun `web:` qilingan edi).
 
-### Mini App'ni Telegram'ga ulash (BotFather orqali)
+**Ro'yxatdan o'tish va barcha menyular endi "premium" ko'rinishda**: sarlavhalar, chiziqlar
+va qalin matn (HTML formatlash) bilan chiroyliroq bezatildi — mijoz, haydovchi, dispetcher
+va admin uchun kirish/xush kelibsiz ekranlari yangilandi.
 
-1. Railway'da deploy qilingandan keyin, loyihangizning ommaviy domenini oling: Railway
-   loyihasi → Settings → Networking → **Generate Domain** (masalan
-   `https://labooltiariq-bot-production.up.railway.app`)
-2. Telegram'da @BotFather ga yozing → `/mybots` → botingizni tanlang → **Bot Settings →
-   Menu Button → Configure Menu Button**
-3. URL sifatida shu domeningizni kiriting (oxiriga `/` bilan, masalan
-   `https://labooltiariq-bot-production.up.railway.app/`)
-4. Tugma matnini kiriting, masalan `🚕 Ochish`
-5. Endi bot chatining pastki chap burchagida doimiy tugma chiqadi — bosilganda mini app
-   ochiladi va foydalanuvchi (mijoz/haydovchi/dispetcher/admin) rolini tanlaydi
-
-**Eslatma:** mini app faqat **HTTPS** orqali ishlaydi — Railway domeni avtomatik HTTPS
-beradi, qo'shimcha sozlash shart emas.
-
-### Mini App arxitekturasi (qisqacha)
-
-- `webauth.py` — Telegram `initData`ni tasdiqlaydi (bot tokeni bilan HMAC imzo tekshiruvi),
-  shuning uchun mini appdan kelgan har bir so'rov haqiqatan shu botning shu foydalanuvchisidan
-  ekani kafolatlanadi
-- `webcommon.py` — umumiy yordamchi funksiyalar (auth, JSON javob formatlash)
-- `api_client.py`, `api_driver.py`, `api_dispatcher.py`, `api_admin.py` — har bir rol uchun
-  `/api/...` endpoint'lari, hammasi mavjud `db.py`/`pricing.py`/`dispatch.py`dan foydalanadi
-  (kod takrorlanmagan — bot va mini app bir xil manbadan ishlaydi)
-- `web.py` — aiohttp ilovasini yig'adi, statik fayllarni (`webapp/`) va API'ni ulaydi
-- `webapp/` — frontend: `index.html`, `app.js`, `style.css` (build kerak emas, oddiy vanilla
-  JS + Leaflet xarita kutubxonasi CDN orqali)
-
-### Bilish kerak bo'lgan cheklovlar
-
-- **Haydovchi joylashuvi faqat mini app ochiq turganda yuboriladi** — bu Telegram Mini
-  App'larning umumiy cheklovi (fon rejimida ishlay olmaydi). Haydovchi telefon ekranini
-  o'chirsa yoki appni yopsa, joylashuv yangilanishi to'xtaydi. Buyurtma qabul qilish/yakunlash
-  esa bot orqali (push xabar + tugma) baribir ishlayveradi — mini app faqat qo'shimcha,
-  qulayroq interfeys.
-- Admin/dispetcher parollari brauzer xotirasida (sahifa yopilguncha) saqlanadi — sahifani
-  qayta ochsangiz, qayta parol so'raladi (xavfsizlik uchun ataylab shunday).
+> **Eslatma:** haydovchi joylashuvini doimiy (fon rejimida) uzatish endi faqat Telegram
+> "Live Location" funksiyasi orqali bo'ladi (avval buni mini app ham qila olardi, ochiq
+> turgan vaqtda) — bot buni allaqachon qabul qiladi (`📍 Lokatsiyani yangilash` tugmasi).
 
 
 ## Eski yangilanishlar
@@ -219,10 +189,9 @@ Haydovchi keyin botga `/driver` yozib, o'z parolini kiritadi.
 
 ## Railway'ga joylash
 
-Endi bot mini app uchun **HTTP port ham ochadi** (bot polling bilan bir vaqtda) — shuning
-uchun Railway'da xizmat turi **web** bo'lishi kerak (`Procfile`da allaqachon shunday
-sozlangan: `web: python3 main.py`). Railway `PORT` muhit o'zgaruvchisini o'zi beradi, kodda
-avtomatik shundan foydalaniladi — qo'shimcha sozlash shart emas.
+Bot endi hech qanday HTTP port ochmaydi — faqat Telegram bilan polling orqali ishlaydi,
+shuning uchun Railway'da xizmat turi **worker** bo'lishi kerak (`Procfile`da allaqachon
+shunday sozlangan: `worker: python3 main.py`).
 
 1. **Kodni GitHub'ga joylang** (yoki `railway up` orqali papkani to'g'ridan-to'g'ri yuklang —
    GitHub shart emas, lekin qulayroq).
@@ -237,11 +206,9 @@ avtomatik shundan foydalaniladi — qo'shimcha sozlash shart emas.
    - Service → **Settings → Volumes → New Volume**
    - Mount path: `/app/data`
    - Yuqoridagi `DB_PATH` shu papka ichiga ko'rsatishi kerak: `/app/data/labooltiariq.db`
-5. **Ommaviy domen oling**: Service → Settings → Networking → **Generate Domain**. Bu
-   manzil mini app URL'i bo'ladi (yuqoridagi "Mini App'ni Telegram'ga ulash" bo'limiga qarang).
-6. Deploy tugagach, loglarda `Bot ... started polling` va `Mini app HTTP server ishga
-   tushdi` qatorlarini ko'rasiz — hammasi ishga tushgan bo'ladi.
-7. Birinchi ishga tushgandan keyin, botga Telegram orqali:
+5. Deploy tugagach, loglarda `Bot ... started polling` qatorini ko'rasiz — bot ishga
+   tushgan bo'ladi.
+6. Birinchi ishga tushgandan keyin, botga Telegram orqali:
    ```
    /admin admin2026
    /setpass admin YangiKuchliParol

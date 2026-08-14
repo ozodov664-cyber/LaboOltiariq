@@ -120,6 +120,14 @@ def init_db():
                 key TEXT PRIMARY KEY,
                 value TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS order_broadcasts (
+                order_id INTEGER NOT NULL REFERENCES orders(id),
+                driver_id INTEGER NOT NULL REFERENCES users(id),
+                message_id INTEGER NOT NULL,
+                text TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (order_id, driver_id)
+            );
             """
         )
         _migrate(conn)
@@ -467,14 +475,97 @@ def get_active_order_for_driver(driver_id):
         return dict(row) if row else None
 
 
+# Buyurtma shuncha soniya davomida hech kim tomonidan qabul qilinmasa, "muddati tugagan"
+# hisoblanadi (avtomatik 'cancelled', sabab: 'expired'). Eskirgan buyurtmani birov keyinroq
+# "✅ Qabul qilish" bossa ham endi qabul qilib bo'lmaydi.
+ORDER_TTL_SECONDS = 20 * 60  # 20 daqiqa
+
+
 def accept_order(order_id, driver_id):
-    """Atomically assign a driver only if the order is still unclaimed. Returns True on success."""
+    """Atomically assign a driver only if the order is still unclaimed and not expired.
+    Returns True on success, False otherwise (order allaqachon boshqasiga tegishli, bekor
+    qilingan yoki muddati tugagan — aniq sababni order_fail_reason() orqali bilib olish mumkin)."""
+    now = int(time.time())
     with get_conn() as conn:
+        row = conn.execute("SELECT status, created_at FROM orders WHERE id=?", (order_id,)).fetchone()
+        if not row:
+            return False
+        if row["status"] == "new" and row["created_at"] and now - row["created_at"] > ORDER_TTL_SECONDS:
+            # hech kim ulgurmagan — endi muddati tugagan deb belgilanadi, hech kimga bermaymiz
+            conn.execute(
+                "UPDATE orders SET status='cancelled', cancel_reason='expired' WHERE id=? AND status='new'",
+                (order_id,),
+            )
+            return False
         cur = conn.execute(
             "UPDATE orders SET driver_id=?, status='accepted' WHERE id=? AND status='new'",
             (driver_id, order_id),
         )
         return cur.rowcount == 1
+
+
+def order_fail_reason(order_id):
+    """accept_order() False qaytarganda, haydovchiga TO'G'RI xabar ko'rsatish uchun sabab qaytaradi:
+    'expired' (muddati tugagan) | 'cancelled' (mijoz/dispetcher bekor qilgan) |
+    'taken' (boshqa haydovchi oldin qabul qilib ulgurgan) | 'not_found' (umuman topilmadi)."""
+    order = get_order(order_id)
+    if not order:
+        return "not_found"
+    if order["status"] == "cancelled":
+        return "expired" if order.get("cancel_reason") == "expired" else "cancelled"
+    if order["status"] in ("accepted", "in_progress", "waiting", "finished"):
+        return "taken"
+    return "unknown"
+
+
+# ---------------- order broadcasts (zayavka yuborilgan xabarlar) ----------------
+# Buyurtma bir nechta haydovchiga yuborilganda, har birining chat_id + message_id (va
+# o'sha haydovchiga ko'rsatilgan aniq matn) shu yerda saqlanadi. Qaysidir haydovchi
+# buyurtmani qabul qilganda, qolganlarning xabarlarini "band bo'ldi" deb avtomatik
+# tahrirlash uchun kerak (get_order_broadcasts orqali).
+def save_order_broadcast(order_id, driver_id, message_id, text):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO order_broadcasts (order_id, driver_id, message_id, text) VALUES (?,?,?,?) "
+            "ON CONFLICT(order_id, driver_id) DO UPDATE SET message_id=excluded.message_id, text=excluded.text",
+            (order_id, driver_id, message_id, text),
+        )
+
+
+def get_order_broadcasts(order_id):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT driver_id, message_id, text FROM order_broadcasts WHERE order_id=?",
+            (order_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def clear_order_broadcasts(order_id):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM order_broadcasts WHERE order_id=?", (order_id,))
+
+
+def expire_stale_orders():
+    """Hali 'new' holatida turgan va ORDER_TTL_SECONDS dan ko'p vaqt o'tgan barcha buyurtmalarni
+    'cancelled' (sabab: 'expired') qilib belgilaydi. Fon rejimidagi davriy tozalash uchun
+    (bot.py/main.py'dagi background task) ishlatiladi — shunda buyurtma "osilib" qolmaydi va
+    mijozga ham xabar berish mumkin bo'ladi. Endi bekor qilingan buyurtmalar ro'yxatini qaytaradi."""
+    now = int(time.time())
+    cutoff = now - ORDER_TTL_SECONDS
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, client_id, created_by, phone_client_name FROM orders "
+            "WHERE status='new' AND created_at IS NOT NULL AND created_at < ?",
+            (cutoff,),
+        ).fetchall()
+        expired = [dict(r) for r in rows]
+        if expired:
+            conn.executemany(
+                "UPDATE orders SET status='cancelled', cancel_reason='expired' WHERE id=? AND status='new'",
+                [(r["id"],) for r in expired],
+            )
+        return expired
 
 
 def set_order_status(order_id, status):
